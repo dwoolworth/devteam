@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskBoard - Archive</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <h1>🎯 <%= board.name %></h1>
+    <nav>
+      <a href="/board/<%= board._id %>">Swimlane View</a>
+      <a href="/board/<%= board._id %>/backlog">Backlog</a>
+      <a href="/board/<%= board._id %>/archive" class="active">Archive</a>
+      <span class="user-info">👤 <%= user.name %></span>
+      <a href="/change-password">🔐</a>
+      <a href="/logout">Logout</a>
+    </nav>
+  </header>
+
+  <main class="archive-container">
+    <div class="archive-header">
+      <h2>📦 All Tasks</h2>
+      <p class="archive-subtitle">Search and filter all tasks including closed items</p>
+    </div>
+    
+    <div class="archive-filters">
+      <div class="filter-row">
+        <div class="filter-group">
+          <label>Search</label>
+          <input type="text" id="searchInput" placeholder="Search name or description..." class="filter-input">
+        </div>
+        
+        <div class="filter-group">
+          <label>Status</label>
+          <select id="statusFilter" class="filter-select">
+            <option value="">All Statuses</option>
+            <option value="backlog">📋 Backlog</option>
+            <option value="todo">📝 TODO</option>
+            <option value="in-progress">🔨 In Progress</option>
+            <option value="in-qa">🧪 In QA</option>
+            <option value="completed">✅ Completed</option>
+            <option value="rfp">🚀 Ready for Prod</option>
+            <option value="closed">📦 Closed</option>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label>Assignee</label>
+          <select id="assigneeFilter" class="filter-select">
+            <option value="">All Assignees</option>
+            <% users.forEach(u => { %>
+              <option value="<%= u.email %>"><%= u.avatar %> <%= u.name %></option>
+            <% }); %>
+          </select>
+        </div>
+        
+        <div class="filter-group">
+          <label>Release</label>
+          <input type="text" id="releaseFilter" placeholder="e.g. v1.2.0" class="filter-input filter-input-sm">
+        </div>
+        
+        <div class="filter-group date-range">
+          <label>Date Range</label>
+          <input type="date" id="dateFrom" class="filter-input filter-input-sm">
+          <span class="date-separator">to</span>
+          <input type="date" id="dateTo" class="filter-input filter-input-sm">
+        </div>
+      </div>
+      
+      <div class="filter-actions">
+        <button id="applyFilters" class="btn-primary">Apply Filters</button>
+        <button id="clearFilters" class="btn-secondary">Clear</button>
+        <span id="resultCount" class="result-count"></span>
+      </div>
+    </div>
+    
+    <div class="archive-results">
+      <table class="archive-table">
+        <thead>
+          <tr>
+            <th class="sortable" data-sort="ticketNumber">Ticket</th>
+            <th class="sortable" data-sort="priority">Pri</th>
+            <th class="sortable" data-sort="name">Name</th>
+            <th class="sortable" data-sort="status">Status</th>
+            <th class="sortable" data-sort="author">Author</th>
+            <th class="sortable" data-sort="assignee">Assignee</th>
+            <th class="sortable" data-sort="release">Release</th>
+            <th class="sortable" data-sort="updatedAt">Updated</th>
+            <th class="sortable" data-sort="createdAt">Created</th>
+          </tr>
+        </thead>
+        <tbody id="taskTableBody">
+          <% tasks.forEach(task => { %>
+            <tr class="task-row" data-id="<%= task._id %>" 
+                data-status="<%= task.status %>" 
+                data-author="<%= task.createdBy || '' %>"
+                data-assignee="<%= task.assignee || '' %>"
+                data-release="<%= task.release || '' %>"
+                data-created="<%= task.createdAt %>"
+                data-updated="<%= task.updatedAt %>">
+              <td class="ticket-number"><%= task.ticketNumber || '-' %></td>
+              <td><span class="priority-badge priority-<%= task.priority %>"><%= task.priority %></span></td>
+              <td>
+                <div class="task-name"><%= task.name %></div>
+                <div class="task-desc"><%= task.description ? task.description.substring(0, 80) + (task.description.length > 80 ? '...' : '') : '' %></div>
+              </td>
+              <td><span class="status-badge status-<%= task.status %>"><%= formatStatus(task.status) %></span></td>
+              <td>
+                <% const authorUser = users.find(u => u.email === task.createdBy); %>
+                <%= authorUser ? authorUser.avatar + ' ' + authorUser.name : (task.createdBy ? task.createdBy.split('@')[0] : '-') %>
+              </td>
+              <td>
+                <% const assignedUser = users.find(u => u.email === task.assignee); %>
+                <%= assignedUser ? assignedUser.avatar + ' ' + assignedUser.name : (task.assignee || '-') %>
+              </td>
+              <td><%= task.release || '-' %></td>
+              <td><%= task.updatedAt ? new Date(task.updatedAt).toLocaleDateString() : '-' %></td>
+              <td><%= task.createdAt ? new Date(task.createdAt).toLocaleDateString() : '-' %></td>
+            </tr>
+          <% }); %>
+        </tbody>
+      </table>
+      
+      <div id="noResults" class="no-results" style="display: none;">
+        No tasks match your filters.
+      </div>
+    </div>
+  </main>
+
+  <script>
+    // Pass data to JS for board.js functions
+    window.USERS = <%- JSON.stringify(users) %>;
+    window.BOARD_ID = '<%= board._id %>';
+  </script>
+  <script src="/js/board.js"></script>
+  <script>
+    // Format status helper
+    function formatStatus(status) {
+      const labels = {
+        'backlog': 'Backlog',
+        'todo': 'TODO',
+        'in-progress': 'In Progress',
+        'in-qa': 'In QA',
+        'completed': 'Completed',
+        'rfp': 'Ready for Prod',
+        'closed': 'Closed'
+      };
+      return labels[status] || status;
+    }
+    
+    // Filter functionality
+    document.addEventListener('DOMContentLoaded', () => {
+      const searchInput = document.getElementById('searchInput');
+      const statusFilter = document.getElementById('statusFilter');
+      const assigneeFilter = document.getElementById('assigneeFilter');
+      const releaseFilter = document.getElementById('releaseFilter');
+      const dateFrom = document.getElementById('dateFrom');
+      const dateTo = document.getElementById('dateTo');
+      const applyBtn = document.getElementById('applyFilters');
+      const clearBtn = document.getElementById('clearFilters');
+      const resultCount = document.getElementById('resultCount');
+      const rows = document.querySelectorAll('.task-row');
+      const noResults = document.getElementById('noResults');
+      const tableBody = document.getElementById('taskTableBody');
+      
+      function applyFilters() {
+        const search = searchInput.value.toLowerCase();
+        const status = statusFilter.value;
+        const assignee = assigneeFilter.value;
+        const release = releaseFilter.value.toLowerCase();
+        const fromDate = dateFrom.value ? new Date(dateFrom.value) : null;
+        const toDate = dateTo.value ? new Date(dateTo.value + 'T23:59:59') : null;
+        
+        let visibleCount = 0;
+        
+        rows.forEach(row => {
+          const name = row.querySelector('.task-name').textContent.toLowerCase();
+          const desc = row.querySelector('.task-desc').textContent.toLowerCase();
+          const rowStatus = row.dataset.status;
+          const rowAssignee = row.dataset.assignee;
+          const rowRelease = (row.dataset.release || '').toLowerCase();
+          const rowCreated = new Date(row.dataset.created);
+          
+          let show = true;
+          
+          // Search filter
+          if (search && !name.includes(search) && !desc.includes(search)) {
+            show = false;
+          }
+          
+          // Status filter
+          if (status && rowStatus !== status) {
+            show = false;
+          }
+          
+          // Assignee filter
+          if (assignee && rowAssignee !== assignee) {
+            show = false;
+          }
+          
+          // Release filter
+          if (release && !rowRelease.includes(release)) {
+            show = false;
+          }
+          
+          // Date range filter
+          if (fromDate && rowCreated < fromDate) {
+            show = false;
+          }
+          if (toDate && rowCreated > toDate) {
+            show = false;
+          }
+          
+          row.style.display = show ? '' : 'none';
+          if (show) visibleCount++;
+        });
+        
+        resultCount.textContent = `${visibleCount} of ${rows.length} tasks`;
+        noResults.style.display = visibleCount === 0 ? 'block' : 'none';
+        tableBody.parentElement.style.display = visibleCount === 0 ? 'none' : '';
+      }
+      
+      function clearFilters() {
+        searchInput.value = '';
+        statusFilter.value = '';
+        assigneeFilter.value = '';
+        releaseFilter.value = '';
+        dateFrom.value = '';
+        dateTo.value = '';
+        applyFilters();
+      }
+      
+      // Event listeners
+      applyBtn.addEventListener('click', applyFilters);
+      clearBtn.addEventListener('click', clearFilters);
+      searchInput.addEventListener('keyup', (e) => {
+        if (e.key === 'Enter') applyFilters();
+      });
+      
+      // Row click to open task (redirect to board with task open)
+      rows.forEach(row => {
+        row.addEventListener('click', () => {
+          window.location.href = `/board/<%= board._id %>?task=${row.dataset.id}`;
+        });
+      });
+      
+      // Initial count
+      resultCount.textContent = `${rows.length} tasks`;
+      
+      // Column sorting
+      document.querySelectorAll('.sortable').forEach(th => {
+        th.addEventListener('click', () => {
+          const sortKey = th.dataset.sort;
+          const tbody = document.getElementById('taskTableBody');
+          const rowsArray = Array.from(rows);
+          
+          const isAsc = th.classList.contains('sort-asc');
+          document.querySelectorAll('.sortable').forEach(h => {
+            h.classList.remove('sort-asc', 'sort-desc');
+          });
+          th.classList.add(isAsc ? 'sort-desc' : 'sort-asc');
+          
+          rowsArray.sort((a, b) => {
+            let aVal, bVal;
+            
+            if (sortKey === 'priority') {
+              aVal = parseInt(a.querySelector('.priority-badge').textContent);
+              bVal = parseInt(b.querySelector('.priority-badge').textContent);
+            } else if (sortKey === 'name') {
+              aVal = a.querySelector('.task-name').textContent.toLowerCase();
+              bVal = b.querySelector('.task-name').textContent.toLowerCase();
+            } else if (sortKey === 'status') {
+              aVal = a.dataset.status;
+              bVal = b.dataset.status;
+            } else if (sortKey === 'author') {
+              aVal = a.dataset.author;
+              bVal = b.dataset.author;
+            } else if (sortKey === 'assignee') {
+              aVal = a.dataset.assignee;
+              bVal = b.dataset.assignee;
+            } else if (sortKey === 'release') {
+              aVal = a.dataset.release || '';
+              bVal = b.dataset.release || '';
+            } else if (sortKey === 'updatedAt' || sortKey === 'createdAt') {
+              aVal = new Date(a.dataset[sortKey === 'updatedAt' ? 'updated' : 'created']);
+              bVal = new Date(b.dataset[sortKey === 'updatedAt' ? 'updated' : 'created']);
+            }
+            
+            if (aVal < bVal) return isAsc ? 1 : -1;
+            if (aVal > bVal) return isAsc ? -1 : 1;
+            return 0;
+          });
+          
+          rowsArray.forEach(row => tbody.appendChild(row));
+        });
+      });
+    });
+  </script>
+  
+  <%
+    function formatStatus(status) {
+      const labels = {
+        'backlog': 'Backlog',
+        'todo': 'TODO',
+        'in-progress': 'In Progress',
+        'in-qa': 'In QA',
+        'completed': 'Completed',
+        'rfp': 'Ready for Prod',
+        'closed': 'Closed'
+      };
+      return labels[status] || status;
+    }
+  %>
+</body>
+</html>

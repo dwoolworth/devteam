@@ -1,0 +1,621 @@
+# Extending DevTeam
+
+How to customize personas, add new team members, create skills, scale the team, and adapt the platform to your needs.
+
+---
+
+## Table of Contents
+
+- [How to Customize a Persona](#how-to-customize-a-persona)
+- [How to Add a New Persona](#how-to-add-a-new-persona)
+- [How to Add New Skills](#how-to-add-new-skills)
+- [How to Customize the Meeting Board](#how-to-customize-the-meeting-board)
+- [How to Scale DEV](#how-to-scale-dev)
+- [How to Use Different AI Providers](#how-to-use-different-ai-providers)
+- [How to Add New Meeting Board Channels](#how-to-add-new-meeting-board-channels)
+
+---
+
+## How to Customize a Persona
+
+Each persona's behavior is defined by four workspace files and a configuration JSON. You can override any of these at three levels, listed from heaviest (requires rebuild) to lightest (no rebuild needed).
+
+### Understanding the Workspace Files
+
+| File | Purpose | Example Content |
+|---|---|---|
+| `SOUL.md` | Core identity, values, personality, and philosophy | "You are DEV. You are the Builder..." |
+| `HEARTBEAT.md` | Prioritized operational loop executed every N minutes | Priority 1: check rejections, Priority 2: new tickets, etc. |
+| `IDENTITY.md` | Name, role declaration, team roster context | Short identity card with name and responsibilities |
+| `TOOLS.md` | Available tools and how to invoke them | API endpoints, CLI commands, allowed operations |
+| `openclaw.json` | AI provider, model, heartbeat interval, role metadata | `{"provider": {"name": "anthropic", "model": "..."}}` |
+
+### Method 1: Build-Time Override (New Image Layer)
+
+Create a custom Dockerfile that extends the persona image and replaces specific files. This is best for permanent customizations that you want baked into the image.
+
+```dockerfile
+FROM devteam/dev:latest
+
+# Override the soul with your custom version
+COPY my-custom-SOUL.md /home/agent/persona/workspace/SOUL.md
+
+# Override the heartbeat to change the operational loop
+COPY my-custom-HEARTBEAT.md /home/agent/persona/workspace/HEARTBEAT.md
+
+# Override the openclaw config to change the model or heartbeat interval
+COPY my-custom-openclaw.json /home/agent/persona/openclaw.json
+
+USER agent
+WORKDIR /home/agent/workspace
+```
+
+Build your custom image:
+
+```bash
+docker build -t my-team/dev:latest -f Dockerfile.custom-dev .
+```
+
+Update `docker-compose.yml` to use your custom image:
+
+```yaml
+dev:
+  image: my-team/dev:latest
+  # ... rest of config unchanged
+```
+
+### Method 2: Volume Mount Override (Runtime, No Rebuild)
+
+Mount a directory to `/overrides/workspace/` to replace workspace files at container startup. The entrypoint script copies any files found in the overrides directory into the active workspace, replacing the persona defaults.
+
+```yaml
+# In docker-compose.yml
+dev:
+  build:
+    context: ./images/dev
+    dockerfile: Dockerfile
+  volumes:
+    - ./my-overrides/dev/workspace:/overrides/workspace:ro
+    - ./my-overrides/dev/openclaw.json:/overrides/openclaw.json:ro
+    - ${PROJECT_CODE_PATH:-./project}:/home/agent/workspace/project:rw
+```
+
+Create your override files:
+
+```
+my-overrides/
+  dev/
+    workspace/
+      SOUL.md            # Only include files you want to override
+      HEARTBEAT.md       # Missing files keep the persona default
+    openclaw.json        # Deep-merged on top of persona + base config
+```
+
+The `openclaw.json` override is deep-merged (not replaced). This means you only need to include the fields you want to change:
+
+```json
+{
+  "heartbeat": {
+    "interval_minutes": 5
+  }
+}
+```
+
+This changes the heartbeat interval to 5 minutes while preserving all other config values.
+
+### Method 3: Environment Variables
+
+Some configuration values can be set purely through environment variables. These are injected into the config by the entrypoint script after all three layers are merged.
+
+```yaml
+dev:
+  environment:
+    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    - MEETING_BOARD_URL=http://meeting-board:8080
+    - MEETING_BOARD_TOKEN=${MB_TOKEN_DEV}
+    - PLANNING_BOARD_URL=${PLANNING_BOARD_URL}
+    - PLANNING_BOARD_TOKEN=${PLANNING_BOARD_TOKEN}
+```
+
+The entrypoint handles two placeholder formats in `openclaw.json`:
+
+- `${VAR_NAME}` -- replaced with the environment variable value, or left empty if unset
+- `${VAR_NAME:-default}` -- replaced with the environment variable value, or `default` if unset
+
+API keys (`ANTHROPIC_API_KEY`, `XAI_API_KEY`, `OPENAI_API_KEY`) are also injected into the config at `api_keys.<provider>` regardless of placeholders.
+
+### Override Precedence
+
+When the same file or config key appears at multiple layers, the later layer wins:
+
+```
+Base config  <  Persona config  <  Runtime override  <  Environment variable
+(Layer 1)       (Layer 2)          (Layer 3)            (post-merge injection)
+```
+
+---
+
+## How to Add a New Persona
+
+To add a sixth (or seventh, or eighth) persona to the team, follow the established pattern.
+
+### Step 1: Create the Persona Directory
+
+```bash
+mkdir -p images/newrole/workspace images/newrole/skills/meeting-board images/newrole/skills/planning-board
+```
+
+### Step 2: Create the Required Files
+
+**`images/newrole/Dockerfile`**
+
+```dockerfile
+FROM devteam/base:latest
+
+# Copy persona configuration
+COPY openclaw.json /home/agent/persona/openclaw.json
+COPY workspace/ /home/agent/persona/workspace/
+COPY skills/ /home/agent/persona/skills/
+
+USER agent
+WORKDIR /home/agent/workspace
+```
+
+All persona Dockerfiles follow this exact pattern. The base image handles everything else.
+
+**`images/newrole/openclaw.json`**
+
+```json
+{
+  "name": "newrole",
+  "display_name": "New Role Display Name",
+  "provider": {
+    "name": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  "persona": {
+    "role": "new_role",
+    "description": "One-sentence description of what this role does and its key principles."
+  },
+  "heartbeat": {
+    "interval_minutes": 10
+  },
+  "skills_dir": "/home/agent/persona/skills"
+}
+```
+
+**`images/newrole/workspace/SOUL.md`**
+
+Write the persona's core identity document. This is the most important file. It defines who the persona is, what it values, how it operates, and what its boundaries are. Study the existing SOUL.md files in `images/po/workspace/`, `images/dev/workspace/`, etc. for the tone and structure.
+
+**`images/newrole/workspace/HEARTBEAT.md`**
+
+Define the prioritized operational loop. This is what the persona does every N minutes. Structure it as numbered priorities (Priority 1 through Priority N) where the persona stops at the first level where it finds actionable work.
+
+**`images/newrole/workspace/IDENTITY.md`**
+
+A short identity card: name, role, one-line description, and team context.
+
+**`images/newrole/workspace/TOOLS.md`**
+
+Document the tools this persona is allowed to use: Meeting Board API endpoints, Planning Board API endpoints, and any role-specific tools (CLI commands, APIs, etc.).
+
+**`images/newrole/skills/meeting-board/SKILL.md`**
+
+Copy from an existing persona and adjust if needed. This teaches the persona how to interact with the Meeting Board API (list channels, post messages, check mentions).
+
+**`images/newrole/skills/planning-board/SKILL.md`**
+
+Copy from an existing persona and adjust. This teaches the persona how to interact with the Planning Board (query tickets, update status, post comments).
+
+### Step 3: Add to the Build System
+
+Update the `Makefile`:
+
+```makefile
+build-personas: build-base ## Build all persona images (requires base)
+	docker build -t $(REGISTRY)/po:$(TAG)      ./images/po
+	docker build -t $(REGISTRY)/dev:$(TAG)     ./images/dev
+	docker build -t $(REGISTRY)/cq:$(TAG)      ./images/cq
+	docker build -t $(REGISTRY)/qa:$(TAG)      ./images/qa
+	docker build -t $(REGISTRY)/ops:$(TAG)     ./images/ops
+	docker build -t $(REGISTRY)/newrole:$(TAG) ./images/newrole
+
+build-newrole: build-base ## Build NewRole image
+	docker build -t $(REGISTRY)/newrole:$(TAG) ./images/newrole
+```
+
+### Step 4: Add to Docker Compose
+
+Add a new service block in `docker-compose.yml`:
+
+```yaml
+newrole:
+  build:
+    context: ./images/newrole
+    dockerfile: Dockerfile
+  container_name: devteam-newrole
+  restart: unless-stopped
+  networks:
+    - devteam
+  ports:
+    - "18795:18789"
+  environment:
+    - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    - MEETING_BOARD_URL=http://meeting-board:8080
+    - MEETING_BOARD_TOKEN=${MB_TOKEN_NEWROLE}
+    - PLANNING_BOARD_URL=${PLANNING_BOARD_URL}
+    - PLANNING_BOARD_TOKEN=${PLANNING_BOARD_TOKEN}
+  depends_on:
+    meeting-board:
+      condition: service_healthy
+```
+
+### Step 5: Add the Auth Token
+
+Update the Meeting Board's `AUTH_TOKENS` to include the new persona:
+
+```yaml
+meeting-board:
+  environment:
+    - AUTH_TOKENS=${AUTH_TOKENS:-po:dev-token,dev:dev-token,cq:dev-token,qa:dev-token,ops:dev-token,newrole:dev-token}
+```
+
+Add `MB_TOKEN_NEWROLE` to your `.env` file.
+
+### Step 6: Add to Kubernetes (Optional)
+
+Add a Deployment to `k8s/personas/deployments.yaml` following the pattern of the existing personas. Add the new token to `k8s/personas/secrets.yaml`.
+
+### Step 7: Update Mention Detection
+
+The Meeting Board's mention regex in `handlers.go` currently matches `@(po|dev|cq|qa|ops)`. To include the new persona in mention detection, update the regex:
+
+```go
+var mentionRe = regexp.MustCompile(`@(po|dev|cq|qa|ops|newrole)`)
+```
+
+Rebuild the Meeting Board after this change.
+
+---
+
+## How to Add New Skills
+
+Skills are directories containing a `SKILL.md` file that teaches a persona how to perform a specific capability. The OpenClaw agent runtime discovers skills from the `skills_dir` configured in `openclaw.json`.
+
+### Creating a Skill
+
+Create a new directory under the persona's `skills/` folder:
+
+```bash
+mkdir -p images/dev/skills/my-new-skill
+```
+
+Write the skill document:
+
+```markdown
+# My New Skill
+
+## What This Skill Does
+
+Describe the capability in 1-2 sentences.
+
+## When To Use This Skill
+
+Describe the trigger conditions -- when should the persona invoke this skill?
+
+## How To Use This Skill
+
+### Step 1: ...
+
+Provide detailed, step-by-step instructions with exact API calls,
+CLI commands, or procedures. Include request/response examples.
+
+### Step 2: ...
+
+Continue with subsequent steps.
+
+## Error Handling
+
+Describe what to do when things go wrong.
+
+## Constraints
+
+List any limitations or things the persona should NOT do with this skill.
+```
+
+### Existing Skills by Persona
+
+| Persona | Skill | Purpose |
+|---|---|---|
+| PO | meeting-board | Post messages, read channels, check mentions |
+| PO | planning-board | Create tickets, assign work, update statuses |
+| DEV | meeting-board | Post updates, read feedback |
+| DEV | planning-board | Query assigned tickets, update statuses |
+| DEV | git-workflow | Branch, commit, push, create PRs |
+| CQ | meeting-board | Post review results |
+| CQ | planning-board | Update ticket statuses after review |
+| CQ | code-review | Review PRs, check security, rate severity |
+| QA | meeting-board | Post test results |
+| QA | planning-board | Update ticket statuses after testing |
+| QA | test-runner | Execute tests, verify acceptance criteria |
+| OPS | meeting-board | Post deployment updates |
+| OPS | planning-board | Move tickets to closed after deploy |
+| OPS | deploy | Execute deployments with rollback plans |
+
+### Sharing Skills Across Personas
+
+If multiple personas need the same skill (like `meeting-board`), each persona has its own copy. This is intentional -- while the Meeting Board API is the same, each persona may use it differently (different channels, different message formats, different polling patterns). If you want a truly shared skill, create it once and copy it to each persona's skills directory during the build.
+
+---
+
+## How to Customize the Meeting Board
+
+### Adding Routes
+
+The Meeting Board is a standard Go microservice using `gorilla/mux`. To add new API endpoints:
+
+1. Add a handler function in `meeting-board/internal/handlers/handlers.go`:
+
+```go
+func (h *Handlers) MyNewHandler(w http.ResponseWriter, r *http.Request) {
+    // Implementation
+    respondJSON(w, http.StatusOK, result)
+}
+```
+
+2. Register the route in `meeting-board/internal/server/server.go`:
+
+```go
+api.HandleFunc("/my-new-endpoint", h.MyNewHandler).Methods("GET")
+```
+
+3. Rebuild the Meeting Board:
+
+```bash
+make build-meeting-board
+```
+
+### Modifying the Auth Model
+
+The current auth model uses simple Bearer tokens mapped to roles. To change this:
+
+- **Add new roles:** Add entries to the `AUTH_TOKENS` environment variable.
+- **Add role-based permissions:** Modify `AuthMiddleware` in `handlers.go` to check the resolved role against allowed roles per endpoint.
+- **Switch to JWT:** Replace the token map lookup with JWT verification in the middleware.
+
+### Modifying the Data Model
+
+Models are defined in `meeting-board/internal/models/models.go`. The store layer in `meeting-board/internal/store/store.go` handles MongoDB operations. To add new fields:
+
+1. Add the field to the model struct with `json` and `bson` tags.
+2. Update the relevant handler to accept/return the new field.
+3. If the field needs indexing, add an index in the store's initialization.
+
+---
+
+## How to Scale DEV
+
+In the Kubernetes deployment, DEV uses a StatefulSet specifically to support scaling. Each DEV replica gets its own persistent volume for project code and a stable network identity.
+
+### Scaling in Kubernetes
+
+```bash
+kubectl -n devteam scale statefulset dev --replicas=3
+```
+
+This creates `dev-0`, `dev-1`, and `dev-2`, each with its own 10Gi PVC. Each DEV instance needs:
+
+- Its own Meeting Board token (or a shared token if you prefer)
+- A way to avoid conflicting work (PO should assign different tickets to different DEV instances)
+
+### Considerations for Multi-DEV
+
+When running multiple DEV instances, you need to address:
+
+**Ticket assignment:** PO needs to know there are multiple developers. Update PO's SOUL.md and HEARTBEAT.md to reference `dev-0`, `dev-1`, etc. as separate assignees, or use a naming convention like `dev-frontend`, `dev-backend`.
+
+**Git conflicts:** Each DEV works on its own feature branch. As long as PO assigns non-overlapping tickets, conflicts are rare. If two DEVs touch the same files, CQ will catch conflicts during review.
+
+**Meeting Board identity:** Each DEV replica should authenticate with a distinct token so the audit trail distinguishes `dev-0` from `dev-1`. Update `AUTH_TOKENS` accordingly:
+
+```
+AUTH_TOKENS=po:...,dev-0:...,dev-1:...,dev-2:...,cq:...,qa:...,ops:...
+```
+
+Update the mention regex to match the new names:
+
+```go
+var mentionRe = regexp.MustCompile(`@(po|dev-\d+|dev|cq|qa|ops)`)
+```
+
+### Scaling in Docker Compose
+
+Docker Compose does not natively support StatefulSets, but you can define multiple DEV services manually:
+
+```yaml
+dev-0:
+  build:
+    context: ./images/dev
+  container_name: devteam-dev-0
+  environment:
+    - MEETING_BOARD_TOKEN=${MB_TOKEN_DEV_0}
+  volumes:
+    - ./project-0:/home/agent/workspace/project:rw
+  # ...
+
+dev-1:
+  build:
+    context: ./images/dev
+  container_name: devteam-dev-1
+  environment:
+    - MEETING_BOARD_TOKEN=${MB_TOKEN_DEV_1}
+  volumes:
+    - ./project-1:/home/agent/workspace/project:rw
+  # ...
+```
+
+---
+
+## How to Use Different AI Providers
+
+Each persona's AI provider is configured in its `openclaw.json`:
+
+```json
+{
+  "provider": {
+    "name": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  }
+}
+```
+
+### Switching a Persona's Provider
+
+To change DEV from Anthropic to OpenAI, for example:
+
+**Option A: Build-time change.** Edit `images/dev/openclaw.json`:
+
+```json
+{
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o",
+    "api_key_env": "OPENAI_API_KEY"
+  }
+}
+```
+
+Update `docker-compose.yml` to pass `OPENAI_API_KEY` instead of `ANTHROPIC_API_KEY`:
+
+```yaml
+dev:
+  environment:
+    - OPENAI_API_KEY=${OPENAI_API_KEY}
+```
+
+Rebuild: `make build-dev`
+
+**Option B: Runtime override.** Create an override file at `my-overrides/dev/openclaw.json`:
+
+```json
+{
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o",
+    "api_key_env": "OPENAI_API_KEY"
+  }
+}
+```
+
+Mount it as a volume and pass the correct API key:
+
+```yaml
+dev:
+  volumes:
+    - ./my-overrides/dev/openclaw.json:/overrides/openclaw.json:ro
+  environment:
+    - OPENAI_API_KEY=${OPENAI_API_KEY}
+```
+
+### Supported Providers
+
+The current personas use three providers:
+
+| Provider | Config Name | Models | API Key Env Var |
+|---|---|---|---|
+| x.ai | `xai` | grok-3 | `XAI_API_KEY` |
+| Anthropic | `anthropic` | claude-sonnet-4-20250514 | `ANTHROPIC_API_KEY` |
+| OpenAI | `openai` | gpt-4o | `OPENAI_API_KEY` |
+
+Any provider supported by the OpenClaw runtime can be used. Consult the OpenClaw documentation for the full list of supported providers and models.
+
+### Changing the Model
+
+To use a different model from the same provider, update only the `model` field:
+
+```json
+{
+  "provider": {
+    "name": "anthropic",
+    "model": "claude-opus-4-20250514"
+  }
+}
+```
+
+This can be done via any of the three override methods (build-time edit, volume mount, or runtime override merge).
+
+---
+
+## How to Add New Meeting Board Channels
+
+### At Runtime via the API
+
+Post to the Meeting Board API to create a new channel:
+
+```bash
+curl -X POST http://localhost:8080/api/channels \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <any-valid-token>" \
+  -d '{
+    "name": "blockers",
+    "description": "Blocker reports and escalation threads"
+  }'
+```
+
+This creates the channel immediately. All personas can see it on their next heartbeat when they list channels.
+
+### At Startup via Seed Configuration
+
+To add a channel that is always created on startup, modify the `seedChannels` function in `meeting-board/main.go`:
+
+```go
+func seedChannels(st *store.Store) {
+    defaults := []struct {
+        name string
+        desc string
+    }{
+        {"standup", "Daily standup updates and status reports"},
+        {"planning", "Sprint planning and task breakdown discussions"},
+        {"review", "Code review requests and feedback"},
+        {"retrospective", "Sprint retrospective discussions and action items"},
+        {"ad-hoc", "General discussion and ad-hoc communication"},
+        {"blockers", "Blocker reports and escalation threads"},        // New channel
+        {"deployments", "Deployment announcements and status updates"}, // New channel
+    }
+    // ... rest of function unchanged
+}
+```
+
+Rebuild and restart:
+
+```bash
+make build-meeting-board && make restart
+```
+
+Seeded channels use `GetChannelByName` to check for existence before creating, so adding new entries to the seed list will not duplicate existing channels.
+
+### Updating Personas to Use New Channels
+
+After adding a channel, update the relevant persona's HEARTBEAT.md and skill files to reference it. For example, if you add a `blockers` channel, update PO's HEARTBEAT.md to include checking that channel for new posts.
+
+---
+
+## Summary of Extension Points
+
+| What to Change | Where | Rebuild Required? |
+|---|---|---|
+| Persona personality/values | `workspace/SOUL.md` | No (volume mount) or Yes (image layer) |
+| Heartbeat loop/priorities | `workspace/HEARTBEAT.md` | No (volume mount) or Yes (image layer) |
+| Available tools | `workspace/TOOLS.md` | No (volume mount) or Yes (image layer) |
+| AI model or provider | `openclaw.json` | No (volume mount) or Yes (image layer) |
+| Heartbeat interval | `openclaw.json` `heartbeat.interval_minutes` | No (volume mount) or Yes (image layer) |
+| API keys | `.env` environment variables | No |
+| Meeting Board tokens | `.env` + `AUTH_TOKENS` | No |
+| New skill | `skills/<name>/SKILL.md` | Yes (image layer) |
+| New persona | Full `images/<name>/` directory | Yes |
+| New Meeting Board channel | `POST /api/channels` or `main.go` seed | No (API) or Yes (seed) |
+| Meeting Board routes | `handlers.go` + `server.go` | Yes |
+| DEV replicas | `kubectl scale` or docker-compose services | No |

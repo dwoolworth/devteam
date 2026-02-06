@@ -1,0 +1,206 @@
+# CQ Tools Reference
+
+These are the tools and APIs available to CQ for performing code reviews, communicating with the team, and managing the review pipeline.
+
+---
+
+## 1. Planning Board API
+
+The planning board is where tickets live. CQ uses it to read the review queue, post review feedback, and transition ticket statuses.
+
+**Base URL**: `{PLANNING_BOARD_URL}` (from environment variable)
+**Authentication**: `Authorization: Bearer {PLANNING_BOARD_TOKEN}` (from environment variable)
+
+### Available Operations
+
+#### List tickets by status
+```
+GET {PLANNING_BOARD_URL}/api/tickets?status=in-review
+```
+Returns all tickets currently awaiting CQ review. Process oldest first.
+
+#### Get a specific ticket
+```
+GET {PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+```
+Returns full ticket details including description, acceptance criteria, assignee, and metadata.
+
+#### Get ticket comments
+```
+GET {PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+```
+Returns the full comment thread on a ticket. Read all comments to understand context and prior discussion.
+
+#### Post a comment on a ticket
+```
+POST {PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+Content-Type: application/json
+
+{
+  "body": "Your review comment here"
+}
+```
+Used for both approval comments and rejection feedback.
+
+#### Update ticket status
+```
+PUT {PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+Content-Type: application/json
+
+{
+  "status": "in-qa"
+}
+```
+Allowed transitions for CQ:
+- `in-review` -> `in-qa` (approval)
+- `in-review` -> `in-progress` (rejection, must be accompanied by a comment)
+
+---
+
+## 2. Meeting Board API
+
+The meeting board is for team communication. CQ uses it for architecture discussions, pattern reporting, and responding to mentions.
+
+**Base URL**: `{MEETING_BOARD_URL}` (from environment variable)
+**Authentication**: `Authorization: Bearer {MEETING_BOARD_TOKEN}` (from environment variable)
+
+### Available Operations
+
+#### Read channel messages
+```
+GET {MEETING_BOARD_URL}/api/channels/{channel}/messages
+GET {MEETING_BOARD_URL}/api/channels/{channel}/messages?since={ISO8601_timestamp}
+```
+Channels CQ monitors: `planning`, `review`, `retrospective`, `general`.
+
+#### Post a message to a channel
+```
+POST {MEETING_BOARD_URL}/api/channels/{channel}/messages
+Content-Type: application/json
+
+{
+  "body": "Your message here"
+}
+```
+Use #review for review discussions, #planning for architecture input, #retrospective for pattern reports.
+
+#### Check @cq mentions
+```
+GET {MEETING_BOARD_URL}/api/mentions?since={ISO8601_timestamp}
+```
+Returns all messages that mention @cq since the given timestamp. Respond to these within the same heartbeat cycle.
+
+#### Reply to a message
+```
+POST {MEETING_BOARD_URL}/api/channels/{channel}/messages
+Content-Type: application/json
+
+{
+  "body": "Your reply here",
+  "thread_id": "{original_message_id}"
+}
+```
+
+---
+
+## 3. Git (Read-Only)
+
+CQ has read-only access to project repositories for reviewing code changes. All git operations are read-only. CQ does not push, commit, or modify code.
+
+### Available Commands
+
+#### View a PR diff
+```bash
+gh pr view {pr_number} --json title,body,files,additions,deletions
+gh pr diff {pr_number}
+```
+
+#### View specific file changes
+```bash
+git diff {base_branch}...{feature_branch} -- path/to/file
+```
+
+#### View file contents at a specific commit
+```bash
+git show {commit_sha}:path/to/file
+```
+
+#### View commit history for a PR branch
+```bash
+git log {base_branch}..{feature_branch} --oneline
+git log {base_branch}..{feature_branch} -p
+```
+
+#### View the full file for context
+```bash
+git show {branch}:path/to/file
+```
+
+#### Search for patterns in code
+```bash
+git grep "pattern" {branch}
+```
+
+#### Check for sensitive data patterns
+```bash
+git grep -nE "(api_key|apikey|secret|password|token|credential)\s*[:=]" {branch}
+git grep -nE "-----BEGIN (RSA |EC |DSA )?PRIVATE KEY-----" {branch}
+git grep -nE "[A-Za-z0-9+/]{40,}" {branch} -- "*.env*" "*.config*" "*.json"
+```
+
+---
+
+## 4. Static Analysis Tools
+
+The following static analysis tools are available in the CQ container for automated code checking. Use these to supplement manual review, not replace it.
+
+### Language-Agnostic
+
+#### Semgrep (pattern-based static analysis)
+```bash
+semgrep --config=auto /path/to/code
+semgrep --config=p/owasp-top-ten /path/to/code
+semgrep --config=p/secrets /path/to/code
+```
+
+#### TruffleHog (secret detection)
+```bash
+trufflehog filesystem /path/to/code --only-verified
+trufflehog git file:///path/to/repo --since-commit={sha}
+```
+
+### JavaScript/TypeScript
+
+```bash
+npx eslint /path/to/code --no-eslintrc --config /home/agent/persona/skills/code-review/eslint-security.json
+```
+
+### Python
+
+```bash
+bandit -r /path/to/code -f json
+pylint /path/to/code --disable=all --enable=security
+```
+
+### Go
+
+```bash
+gosec /path/to/code/...
+```
+
+### Docker/Infrastructure
+
+```bash
+hadolint /path/to/Dockerfile
+trivy fs /path/to/code
+```
+
+---
+
+## 5. Tool Usage Guidelines
+
+- **Planning Board** is the primary tool. The review queue is the core job.
+- **Git** is the second most used tool. You cannot review what you have not read.
+- **Static analysis** supplements your review. Run it, but do not blindly trust it. False positives exist. False negatives are more dangerous.
+- **Meeting Board** is for communication and collaboration. Use it to prevent issues (architecture input) and fix systemic problems (pattern reporting).
+- All tools require their respective environment variables to be set. If a tool fails due to missing configuration, log the error and continue with other tools.

@@ -1,0 +1,299 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: po
+  namespace: devteam
+  labels:
+    app: po
+    role: project-owner
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: po
+  template:
+    metadata:
+      labels:
+        app: po
+        role: project-owner
+    spec:
+      containers:
+        - name: po
+          image: devteam/po:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: XAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-api-keys
+                  key: xai-api-key
+            - name: MEETING_BOARD_URL
+              value: "http://meeting-board:8080"
+            - name: MEETING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: po-token
+            - name: PLANNING_BOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: url
+            - name: PLANNING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: token
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dev
+  namespace: devteam
+  labels:
+    app: dev
+    role: developer
+spec:
+  serviceName: dev
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dev
+  template:
+    metadata:
+      labels:
+        app: dev
+        role: developer
+    spec:
+      containers:
+        - name: dev
+          image: devteam/dev:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-api-keys
+                  key: anthropic-api-key
+            - name: MEETING_BOARD_URL
+              value: "http://meeting-board:8080"
+            - name: MEETING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: dev-token
+            - name: PLANNING_BOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: url
+            - name: PLANNING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: token
+          volumeMounts:
+            - name: project-code
+              mountPath: /home/agent/workspace/project
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2"
+  volumeClaimTemplates:
+    - metadata:
+        name: project-code
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dev
+  namespace: devteam
+spec:
+  clusterIP: None
+  selector:
+    app: dev
+  ports:
+    - port: 18789
+      targetPort: 18789
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cq
+  namespace: devteam
+  labels:
+    app: cq
+    role: code-quality
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cq
+  template:
+    metadata:
+      labels:
+        app: cq
+        role: code-quality
+    spec:
+      containers:
+        - name: cq
+          image: devteam/cq:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-api-keys
+                  key: anthropic-api-key
+            - name: MEETING_BOARD_URL
+              value: "http://meeting-board:8080"
+            - name: MEETING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: cq-token
+            - name: PLANNING_BOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: url
+            - name: PLANNING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: token
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: qa
+  namespace: devteam
+  labels:
+    app: qa
+    role: quality-assurance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: qa
+  template:
+    metadata:
+      labels:
+        app: qa
+        role: quality-assurance
+    spec:
+      containers:
+        - name: qa
+          image: devteam/qa:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-api-keys
+                  key: anthropic-api-key
+            - name: MEETING_BOARD_URL
+              value: "http://meeting-board:8080"
+            - name: MEETING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: qa-token
+            - name: PLANNING_BOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: url
+            - name: PLANNING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: token
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ops
+  namespace: devteam
+  labels:
+    app: ops
+    role: devops
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ops
+  template:
+    metadata:
+      labels:
+        app: ops
+        role: devops
+    spec:
+      containers:
+        - name: ops
+          image: devteam/ops:latest
+          ports:
+            - containerPort: 18789
+          env:
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: ai-api-keys
+                  key: openai-api-key
+            - name: MEETING_BOARD_URL
+              value: "http://meeting-board:8080"
+            - name: MEETING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: ops-token
+            - name: PLANNING_BOARD_URL
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: url
+            - name: PLANNING_BOARD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: planning-board-creds
+                  key: token
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1"

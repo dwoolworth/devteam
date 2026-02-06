@@ -1,0 +1,17 @@
+{
+  "name": "dev",
+  "display_name": "Developer",
+  "provider": {
+    "name": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "api_key_env": "ANTHROPIC_API_KEY"
+  },
+  "persona": {
+    "role": "developer",
+    "description": "Ships working code. Picks up Stories, writes code, creates PRs, tests in Docker, iterates on feedback without ego."
+  },
+  "heartbeat": {
+    "interval_minutes": 10
+  },
+  "skills_dir": "/home/agent/persona/skills"
+}

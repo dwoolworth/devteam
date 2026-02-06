@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskBoard - <%= board.name %></title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <h1>🎯 <%= board.name %></h1>
+    <nav>
+      <a href="/board/<%= board._id %>" class="<%= view === 'swimlane' ? 'active' : '' %>">Swimlane View</a>
+      <a href="/board/<%= board._id %>/backlog" class="<%= view === 'backlog' ? 'active' : '' %>">Backlog</a>
+      <a href="/board/<%= board._id %>/archive" class="<%= view === 'archive' ? 'active' : '' %>">Archive</a>
+      <button id="addTaskBtn" class="btn-primary">+ New Task</button>
+      <span class="user-info">👤 <%= user.name %></span>
+      <a href="/change-password">🔐</a>
+      <a href="/logout">Logout</a>
+    </nav>
+  </header>
+
+  <main class="board-container">
+    <% const columns = [
+      { id: 'todo', name: '📝 TODO', color: '#3b82f6' },
+      { id: 'in-progress', name: '🔨 In Progress', color: '#f59e0b' },
+      { id: 'in-review', name: '🔍 In Review', color: '#ec4899' },
+      { id: 'in-qa', name: '🧪 In QA', color: '#8b5cf6' },
+      { id: 'completed', name: '✅ Completed', color: '#10b981' },
+      { id: 'rfp', name: '🚀 Ready for Prod', color: '#06b6d4' }
+    ]; %>
+    
+    <% columns.forEach(column => { %>
+      <div class="column" data-status="<%= column.id %>">
+        <div class="column-header" style="border-top-color: <%= column.color %>">
+          <h2><%= column.name %></h2>
+          <span class="task-count"><%= tasks.filter(t => t.status === column.id).length %></span>
+        </div>
+        <div class="task-list" data-status="<%= column.id %>">
+          <% tasks.filter(t => t.status === column.id).sort((a, b) => b.priority - a.priority).forEach(task => { %>
+            <div class="task-card" data-id="<%= task._id %>" draggable="true">
+              <div class="task-priority priority-<%= task.priority %>"></div>
+              <% if (task.ticketNumber) { %><span class="ticket-number"><%= task.ticketNumber %></span><% } %>
+              <h3><%= task.name %></h3>
+              <p class="task-description"><%= task.description ? task.description.substring(0, 100) + (task.description.length > 100 ? '...' : '') : '' %></p>
+              <div class="task-meta">
+                <span class="complexity" title="Story Points"><%= task.complexity || '-' %> pts</span>
+                <% if (task.comments && task.comments.length > 0) { %>
+                  <span class="comment-count" title="Comments">💬 <%= task.comments.length %></span>
+                <% } %>
+                <% if (task.assignee) { 
+                  const assignedUser = users.find(u => u.email === task.assignee);
+                %>
+                  <span class="assignee" title="<%= assignedUser ? assignedUser.name : task.assignee %>"><%= assignedUser ? assignedUser.avatar : '👤' %></span>
+                <% } %>
+              </div>
+            </div>
+          <% }); %>
+        </div>
+      </div>
+    <% }); %>
+  </main>
+
+  <!-- Task Modal -->
+  <div id="taskModal" class="modal">
+    <div class="modal-content modal-xlarge">
+      <span class="close">&times;</span>
+      <h2 id="modalTitle">New Task</h2>
+      
+      <div class="modal-body-scrollable">
+        <form id="taskForm">
+          <input type="hidden" id="taskId" name="id">
+          <input type="hidden" id="boardId" name="boardId" value="<%= board._id %>">
+          
+          <div class="form-group">
+            <label for="taskName">Name *</label>
+            <input type="text" id="taskName" name="name" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="taskDescription">Description</label>
+            <textarea id="taskDescription" name="description" rows="8" placeholder="Describe the task in detail. Use @name to mention team members."></textarea>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label for="taskPriority">Priority</label>
+              <select id="taskPriority" name="priority">
+                <option value="1">⚪ Lowest</option>
+                <option value="2">🟢 Low</option>
+                <option value="3" selected>🟡 Medium</option>
+                <option value="4">🟠 High</option>
+                <option value="5">🔴 Critical</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="taskComplexity">Story Points</label>
+              <select id="taskComplexity" name="complexity">
+                <option value="1">1</option>
+                <option value="2">2</option>
+                <option value="3" selected>3</option>
+                <option value="5">5</option>
+                <option value="8">8</option>
+                <option value="13">13</option>
+                <option value="21">21</option>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="taskStatus">Status</label>
+              <select id="taskStatus" name="status">
+                <option value="backlog">📋 Backlog</option>
+                <option value="todo">📝 TODO</option>
+                <option value="in-progress">🔨 In Progress</option>
+                <option value="in-qa">🧪 In QA</option>
+                <option value="completed">✅ Completed</option>
+                <option value="rfp">🚀 Ready for Prod</option>
+                <option value="closed">📦 Closed</option>
+              </select>
+            </div>
+          </div>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label for="taskAssignee">Assignee</label>
+              <select id="taskAssignee" name="assignee">
+                <option value="">Unassigned</option>
+                <% users.forEach(u => { %>
+                  <option value="<%= u.email %>"><%= u.avatar %> <%= u.name %></option>
+                <% }); %>
+              </select>
+            </div>
+            
+            <div class="form-group">
+              <label for="taskRelease">Release</label>
+              <input type="text" id="taskRelease" name="release" placeholder="e.g. v1.2.0">
+            </div>
+          </div>
+          
+          <!-- Attachments Section -->
+          <div id="attachmentsSection" class="attachments-section" style="display: none;">
+            <label>📎 Attachments</label>
+            <div id="attachmentsList" class="attachments-list"></div>
+            <div class="attachment-upload">
+              <input type="file" id="attachmentInput" accept="image/*,.pdf,.doc,.docx,.txt,.md" style="display: none;">
+              <button type="button" id="uploadAttachmentBtn" class="btn-secondary">+ Add Attachment</button>
+              <span id="uploadStatus" class="upload-status"></span>
+            </div>
+          </div>
+          
+          <div class="form-actions">
+            <button type="button" id="deleteTaskBtn" class="btn-danger" style="display: none;">Delete</button>
+            <button type="submit" class="btn-primary">Save Task</button>
+          </div>
+        </form>
+        
+        <!-- Comments/History Section (visible when editing) -->
+        <div id="commentsSection" class="comments-section" style="display: none;">
+          <div class="tabs">
+            <button type="button" class="tab-btn active" data-tab="comments">💬 Comments</button>
+            <button type="button" class="tab-btn" data-tab="history">📜 History</button>
+          </div>
+          
+          <div id="commentsTab" class="tab-content active">
+            <div id="commentsList" class="comments-list"></div>
+            <div class="add-comment">
+              <textarea id="newComment" placeholder="Add a comment... Use @name to mention someone"></textarea>
+              <button type="button" id="addCommentBtn" class="btn-primary">Post Comment</button>
+            </div>
+          </div>
+          
+          <div id="historyTab" class="tab-content" style="display: none;">
+            <div id="historyList" class="history-list"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Pass users to JS for mention autocomplete
+    window.USERS = <%- JSON.stringify(users) %>;
+    window.BOARD_ID = '<%= board._id %>';
+  </script>
+  <script src="/js/board.js"></script>
+</body>
+</html>

@@ -1,0 +1,392 @@
+# DEV -- Available Tools and APIs
+
+This document describes every tool and API available to DEV. If a tool is not
+listed here, you do not have access to it.
+
+---
+
+## 1. Planning Board API
+
+The planning board tracks all tickets and their lifecycle. DEV has limited
+access -- you can read your own tickets and update their status, but you
+cannot create, delete, or reassign tickets.
+
+**Base URL:** `${PLANNING_BOARD_URL}` (from environment variable)
+**Authentication:** Bearer token via `${PLANNING_BOARD_TOKEN}` environment variable
+
+All requests must include the header:
+```
+Authorization: Bearer ${PLANNING_BOARD_TOKEN}
+```
+
+### Endpoints Available to DEV
+
+#### List tickets assigned to you
+
+```
+GET /api/tickets?assignee=dev
+```
+
+Optional query parameters:
+- `status` -- filter by status (`backlog`, `todo`, `in-progress`, `in-review`, `in-qa`, `completed`, `rfp`, `closed`)
+- `priority` -- filter by priority (integer, lower = higher priority)
+- `limit` -- max number of results (default 20)
+- `offset` -- pagination offset
+
+Response:
+```json
+{
+  "tickets": [
+    {
+      "id": "TICKET-42",
+      "title": "Implement user authentication",
+      "description": "...",
+      "status": "todo",
+      "priority": 1,
+      "assignee": "dev",
+      "acceptance_criteria": ["..."],
+      "created_at": "2025-01-15T10:00:00Z",
+      "updated_at": "2025-01-15T10:00:00Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+#### Get a single ticket
+
+```
+GET /api/tickets/{ticket_id}
+```
+
+Returns the full ticket object including all fields and metadata.
+
+#### Update ticket status
+
+```
+PATCH /api/tickets/{ticket_id}
+Content-Type: application/json
+
+{"status": "in-progress"}
+```
+
+**Allowed transitions for DEV:**
+- `todo` -> `in-progress`
+- `in-progress` -> `in-review`
+
+Any other transition will be rejected with a 403 error.
+
+#### List comments on a ticket
+
+```
+GET /api/tickets/{ticket_id}/comments
+```
+
+Optional query parameters:
+- `since` -- ISO 8601 timestamp, return only comments after this time
+
+Response:
+```json
+{
+  "comments": [
+    {
+      "id": "comment-1",
+      "author": "cq",
+      "body": "Function complexity is too high in auth.js line 45.",
+      "created_at": "2025-01-15T12:00:00Z"
+    }
+  ]
+}
+```
+
+#### Add a comment to a ticket
+
+```
+POST /api/tickets/{ticket_id}/comments
+Content-Type: application/json
+
+{"body": "Fixed the complexity issue by extracting validation into a helper."}
+```
+
+You can only comment on tickets assigned to you. Attempting to comment on
+someone else's ticket will return a 403 error.
+
+---
+
+## 2. Meeting Board API
+
+The meeting board is the team's communication hub. All personas use it to
+coordinate, discuss, and stay informed. DEV has full read and write access
+to all channels.
+
+**Base URL:** `${MEETING_BOARD_URL}` (from environment variable)
+**Authentication:** Bearer token via `${MEETING_BOARD_TOKEN}` environment variable
+
+All requests must include the header:
+```
+Authorization: Bearer ${MEETING_BOARD_TOKEN}
+```
+
+### Endpoints
+
+#### Post a message to a channel
+
+```
+POST /api/channels/{channel_name}/messages
+Content-Type: application/json
+
+{"body": "Starting TICKET-42: implementing user authentication flow."}
+```
+
+Common channels:
+- `planning` -- technical discussions, approach proposals, scope questions
+- `review` -- PR submissions, review updates, fix notifications
+- `standup` -- status updates, availability, blockers
+- `general` -- everything else
+
+#### Read messages from a channel
+
+```
+GET /api/channels/{channel_name}/messages
+```
+
+Optional query parameters:
+- `since` -- ISO 8601 timestamp, return messages after this time
+- `limit` -- max number of results (default 50)
+- `author` -- filter by persona name
+
+Response:
+```json
+{
+  "messages": [
+    {
+      "id": "msg-101",
+      "channel": "planning",
+      "author": "po",
+      "body": "TICKET-42 is high priority, please pick it up first.",
+      "created_at": "2025-01-15T09:00:00Z"
+    }
+  ]
+}
+```
+
+#### Check @dev mentions
+
+```
+GET /api/mentions?persona=dev&since={iso_timestamp}
+```
+
+Returns all messages across all channels that mention @dev since the given
+timestamp. This is your primary way to know when someone needs your attention.
+
+Response:
+```json
+{
+  "mentions": [
+    {
+      "message_id": "msg-205",
+      "channel": "planning",
+      "author": "cq",
+      "body": "@dev can you explain the rationale for using a singleton here?",
+      "created_at": "2025-01-15T11:30:00Z"
+    }
+  ]
+}
+```
+
+#### Reply to a thread
+
+```
+POST /api/channels/{channel_name}/messages
+Content-Type: application/json
+
+{
+  "body": "The singleton ensures we have a single DB connection pool.",
+  "reply_to": "msg-205"
+}
+```
+
+#### WebSocket for real-time updates
+
+```
+ws://${MEETING_BOARD_URL}/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,review,standup
+```
+
+Receives real-time messages as JSON. Useful for staying responsive between
+heartbeats. Message format matches the REST API response format.
+
+---
+
+## 3. Git Workflow
+
+DEV has full access to the project Git repository. All code changes go through
+Git with a branch-based workflow.
+
+### Available Commands
+
+#### Clone the repository
+
+```bash
+git clone ${REPO_URL} /home/agent/workspace/repo
+```
+
+The repo URL is provided via the `REPO_URL` environment variable.
+
+#### Create a feature branch
+
+```bash
+git checkout main
+git pull origin main
+git checkout -b feature/TICKET-42-user-authentication
+```
+
+Branch naming convention: `feature/{TICKET-ID}-{brief-description}`
+- Use lowercase
+- Use hyphens to separate words
+- Keep the description under 5 words
+
+#### Commit changes
+
+```bash
+git add src/auth.js src/auth.test.js
+git commit -m "feat(TICKET-42): implement user authentication flow"
+```
+
+Conventional commit format: `{type}({TICKET-ID}): {description}`
+
+Types:
+- `feat` -- new feature
+- `fix` -- bug fix
+- `refactor` -- code restructuring without behavior change
+- `test` -- adding or updating tests
+- `docs` -- documentation changes
+- `chore` -- build, config, or tooling changes
+
+#### Push and create a PR
+
+```bash
+git push -u origin feature/TICKET-42-user-authentication
+
+gh pr create \
+  --title "TICKET-42: Implement user authentication flow" \
+  --body "## Summary
+Implements the user authentication flow per TICKET-42 acceptance criteria.
+
+## Changes
+- Added JWT-based auth middleware
+- Created login and registration endpoints
+- Added input validation and rate limiting
+
+## Testing
+- All unit tests passing
+- Integration tests passing in Docker
+- Manually verified login flow
+
+## Ticket
+Resolves TICKET-42"
+```
+
+#### Check PR status
+
+```bash
+gh pr status
+gh pr view {pr_number}
+```
+
+---
+
+## 4. Test Environment (Running the App for QA)
+
+When you submit a ticket for review, you must have the app running inside your
+container so QA can test against it. Your container is on the `devteam` Docker
+network. Other containers (including QA) can reach your app at
+`http://devteam-dev:<port>`.
+
+### Starting the App
+
+```bash
+cd /home/agent/workspace/project
+
+# Install dependencies
+npm install
+
+# Build the project
+npm run build
+
+# Start the app in the background
+npm start &
+
+# Verify it is running
+curl -s http://localhost:3000/
+```
+
+The app is now accessible to QA at `http://devteam-dev:3000` (or whatever port
+the project uses). Include this URL in your ticket comment under "How to Test."
+
+### Keeping the App Running
+
+The app must stay running until QA renders a verdict (pass or fail). Do not
+stop it between heartbeats. If it crashes, restart it on the next heartbeat.
+
+### Stopping the App
+
+After QA passes (ticket moves to `completed`) and you merge the PR:
+
+```bash
+# Find and stop the running app
+kill %1
+# Or find the process
+ps aux | grep "npm start"
+kill <pid>
+```
+
+### Building and Testing Before Submission
+
+Always build and run tests before starting the app for QA:
+
+```bash
+# Run the full test suite
+npm test
+
+# Run specific test types if available
+npm run test:unit
+npm run test:integration
+
+# Build to verify compilation
+npm run build
+
+# Run linter
+npm run lint
+```
+
+---
+
+## 5. Standard Development Tools
+
+The following tools are pre-installed in the DEV container and available for
+use during development.
+
+### Node.js / JavaScript
+
+- `node` -- Node.js runtime
+- `npm` -- package manager
+- `npx` -- run packages without installing
+
+### Python
+
+- `python3` -- Python interpreter
+- `pip` -- Python package manager
+- `venv` -- virtual environment management
+
+### General Utilities
+
+- `curl` -- HTTP requests (used for API calls)
+- `jq` -- JSON processing and formatting
+- `make` -- build automation
+- `ssh` -- secure shell (for Git operations)
+
+### Code Quality (run locally before submitting)
+
+- Linters and formatters as configured in the project
+- Run via npm scripts or make targets defined in the project
+- Always run the project's configured linter before committing

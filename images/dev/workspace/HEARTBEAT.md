@@ -1,0 +1,508 @@
+# DEV Heartbeat -- Every 10 Minutes
+
+This is your operational loop. Every 10 minutes you wake up and execute this
+routine from top to bottom. You stop at the first priority level where you
+find actionable work. You do not skip levels. You do not reorder them.
+
+**Priority order: merge first, fix bugs second, new work last.**
+
+---
+
+## Priority 1: Merge Completed Work (Check `completed` Column)
+
+QA has passed these tickets. The PR exists, tests have been verified. Your job
+is to merge the PR to `main` and move the ticket to `rfp`.
+
+**Steps:**
+
+1. Query for your tickets in `completed` status:
+
+   ```
+   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=completed
+   ```
+
+2. For each ticket in `completed`:
+
+   a. Find the PR for this ticket's feature branch:
+
+      ```bash
+      gh pr list --search "TICKET-ID" --state open
+      ```
+
+   b. Check out `main` and pull latest:
+
+      ```bash
+      cd /home/agent/workspace/project
+      git checkout main
+      git pull origin main
+      ```
+
+   c. Merge the feature branch PR:
+
+      ```bash
+      gh pr merge {pr_number} --merge --delete-branch
+      ```
+
+      Use `--merge` (not squash, not rebase) unless the project specifies otherwise.
+      The `--delete-branch` flag cleans up the remote feature branch.
+
+   d. Verify the merge succeeded:
+
+      ```bash
+      git pull origin main
+      git log --oneline -3
+      ```
+
+   e. Move the ticket to `rfp`:
+
+      ```
+      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      {"status": "rfp"}
+      ```
+
+   f. Add a comment to the ticket:
+
+      ```
+      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+      {"body": "PR merged to main. Feature branch cleaned up. Moving to rfp."}
+      ```
+
+   g. Post on the Meeting Board:
+
+      ```
+      POST ${MEETING_BOARD_URL}/api/channels/review/messages
+      {"body": "TICKET-ID: PR merged to main. Moved to rfp."}
+      ```
+
+**Handle ALL tickets in `completed` before moving to Priority 2.**
+
+---
+
+## Priority 2: Fix Pushed-Back Tickets (Check `in-progress` for Rejections)
+
+Tickets pushed back by CQ or QA are bugs you introduced. Fix them before
+starting anything new.
+
+**Steps:**
+
+1. Query for your in-progress tickets:
+
+   ```
+   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=in-progress
+   ```
+
+2. For each ticket, fetch the full comment history:
+
+   ```
+   GET ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+   ```
+
+3. Look for comments from CQ or QA posted after your last update. These
+   indicate a rejection. If there are no rejection comments, this ticket is
+   active work — skip it for now (Priority 3 handles it).
+
+4. For rejected tickets, read ALL comments. Not just the latest one. Read
+   the full thread to understand:
+   - The specific rejection reason
+   - Any code snippets or line references mentioned
+   - Whether this is a repeat rejection (if so, you missed something last time)
+
+5. Identify the root cause. Do not just fix the surface symptom.
+
+6. Make the fix in your feature branch:
+
+   ```bash
+   cd /home/agent/workspace/project
+   git checkout feature/TICKET-ID-description
+   ```
+
+7. Build and test the fix:
+
+   ```bash
+   # Install dependencies if needed
+   npm install  # or whatever the project uses
+
+   # Run tests
+   npm test
+
+   # Build and verify the app starts
+   npm run build
+   npm start &
+   # Verify the fix manually, then stop the app
+   kill %1
+   ```
+
+8. Commit with a message referencing the feedback:
+
+   ```bash
+   git add <changed-files>
+   git commit -m "fix(TICKET-ID): address CQ/QA feedback on [specific issue]"
+   ```
+
+9. Push the branch (PR updates automatically):
+
+   ```bash
+   git push
+   ```
+
+10. Start the app running for QA to verify (if applicable):
+
+    ```bash
+    npm start &
+    # App accessible at http://devteam-dev:<port> on the devteam network
+    ```
+
+11. Add a comment to the ticket explaining the fix and the test URL:
+
+    ```
+    POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+    {"body": "## Fix Applied\n\nAddressed [specific feedback]. [What was changed and why].\n\n## Testing\nApp running at http://devteam-dev:3000\nAll tests passing.\n\nReady for re-review."}
+    ```
+
+12. Move the ticket to `in-review`:
+
+    ```
+    PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+    {"status": "in-review"}
+    ```
+
+13. Post on the Meeting Board:
+
+    ```
+    POST ${MEETING_BOARD_URL}/api/channels/review/messages
+    {"body": "Fixed TICKET-ID: [brief description of fix]. Tested, ready for re-review."}
+    ```
+
+**Handle ALL rejected tickets before moving to Priority 3.**
+
+---
+
+## Priority 3: Continue Active Work (In-Progress Tickets Without Rejections)
+
+You have a ticket in `in-progress` that is NOT a rejection. Keep building.
+
+**Steps:**
+
+1. You already queried in-progress tickets in Priority 2. If any remain that
+   did NOT have CQ/QA rejection comments, continue working on them here.
+
+2. Follow the development workflow in Priority 4, Step 5 (the same workflow
+   applies whether continuing work or starting fresh).
+
+3. If you hit a blocker or have questions:
+   - Add a comment to the ticket explaining the question:
+
+     ```
+     POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+     {"body": "@po [Your specific question about the ticket requirements]"}
+     ```
+
+   - Move the ticket back to `todo`:
+
+     ```
+     PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+     {"status": "todo"}
+     ```
+
+   - Post in #standup:
+
+     ```
+     POST ${MEETING_BOARD_URL}/api/channels/standup/messages
+     {"body": "DEV: Blocked on TICKET-ID, question posted to PO. Moving back to todo."}
+     ```
+
+   - Move on. Do NOT sit idle waiting for an answer. Check Priority 4 for
+     more work or move to Priority 5.
+
+---
+
+## Priority 4: Pick Up New Work (Check `todo` Column)
+
+No merges needed. No rejections to fix. No active work in progress. Time for
+a new ticket.
+
+**Steps:**
+
+1. Query for tickets assigned to you in `todo` status:
+
+   ```
+   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=todo
+   ```
+
+2. If no tickets are returned, skip to Priority 5.
+
+3. If multiple tickets, pick the one with the highest priority (lower number
+   = higher priority). If priorities are equal, pick the one created earliest.
+
+4. Read the ticket thoroughly:
+   - Title and description
+   - Acceptance criteria (every single one)
+   - Any linked tickets or dependencies
+   - Any comments already on the ticket (PO may have added context)
+
+5. **Evaluate:** Are the instructions clear enough to start work?
+
+   **If NO — you have questions:**
+
+   a. Add a comment to the ticket with your specific questions:
+
+      ```
+      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+      {"body": "@po Questions before I start:\n1. [Specific question]\n2. [Specific question]"}
+      ```
+
+   b. Leave the ticket in `todo`. Do NOT move it to in-progress.
+
+   c. Post in #standup:
+
+      ```
+      POST ${MEETING_BOARD_URL}/api/channels/standup/messages
+      {"body": "DEV: Questions on TICKET-ID posted to PO. Waiting for clarification."}
+      ```
+
+   d. Move to Priority 5. Do not sit idle.
+
+   **If YES — instructions are clear. Execute the dev workflow:**
+
+   a. Move the ticket to `in-progress`:
+
+      ```
+      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      {"status": "in-progress"}
+      ```
+
+   b. Post a brief update:
+
+      ```
+      POST ${MEETING_BOARD_URL}/api/channels/standup/messages
+      {"body": "DEV: Starting TICKET-ID: [title]. Approach: [1-2 sentences]."}
+      ```
+
+   c. **Clone the repo** (if not already cloned):
+
+      ```bash
+      cd /home/agent/workspace
+      git clone ${REPO_URL} project
+      cd project
+      ```
+
+      If already cloned, make sure you are up to date:
+
+      ```bash
+      cd /home/agent/workspace/project
+      git checkout main
+      git pull origin main
+      ```
+
+   d. **Create a feature branch** named with the ticket ID:
+
+      ```bash
+      git checkout -b feature/TICKET-ID-brief-description
+      ```
+
+      Example: `feature/TICKET-42-user-authentication`
+
+   e. **Explore the existing code.** Before writing anything, understand:
+      - The project structure and file layout
+      - Existing patterns (how similar features are implemented)
+      - Where your changes need to go
+      - What tests already exist
+
+      ```bash
+      ls -la
+      find . -name "*.js" -not -path "*/node_modules/*" | head -30
+      cat README.md
+      cat package.json
+      ```
+
+   f. **Install dependencies:**
+
+      ```bash
+      npm install  # or pip install -r requirements.txt, etc.
+      ```
+
+   g. **Write the code** implementing the acceptance criteria. Work through
+      each criterion methodically:
+      - Implement criterion 1, test it
+      - Implement criterion 2, test it
+      - Continue until all criteria are addressed
+
+   h. **Write tests** covering the acceptance criteria:
+
+      ```bash
+      # Create test files alongside the code
+      # Run tests to verify they pass
+      npm test
+      ```
+
+   i. **Test compilation and build:**
+
+      ```bash
+      npm run build  # or the project's build command
+      ```
+
+      If the build fails, fix it before proceeding.
+
+   j. **Do preliminary checks of your work:**
+
+      ```bash
+      # Run linter if configured
+      npm run lint
+
+      # Review your own diff
+      git diff
+
+      # Check for secrets, debug logs, dead code
+      git diff | grep -i "password\|secret\|api_key\|console.log\|TODO\|FIXME"
+      ```
+
+      Fix any issues found.
+
+   k. **Start the app running** inside your container for QA to access:
+
+      ```bash
+      npm start &
+      # The app is now accessible at http://devteam-dev:<port>
+      # on the devteam Docker network. QA can reach this URL.
+      ```
+
+      Verify the app is running:
+
+      ```bash
+      curl -s http://localhost:3000/  # or whatever port
+      ```
+
+      **Keep the app running.** Do not stop it until QA renders a verdict.
+
+   l. **Commit your changes:**
+
+      ```bash
+      git add <specific-files>
+      git commit -m "feat(TICKET-ID): implement [brief description]"
+      ```
+
+      Follow conventional commit format. Reference the ticket ID.
+
+   m. **Push your feature branch:**
+
+      ```bash
+      git push -u origin feature/TICKET-ID-brief-description
+      ```
+
+   n. **Create a Pull Request:**
+
+      ```bash
+      gh pr create \
+        --title "TICKET-ID: [Brief description]" \
+        --body "## Summary
+      [1-2 sentences explaining what and why]
+
+      ## Changes
+      - [What was changed]
+
+      ## Acceptance Criteria
+      - [x] [Criterion 1]
+      - [x] [Criterion 2]
+
+      ## Testing
+      - All tests passing
+      - App running at http://devteam-dev:<port>
+      - [Manual verification notes]
+
+      ## Ticket
+      Resolves TICKET-ID"
+      ```
+
+   o. **Add a comment to the ticket** with the PR link and test URL:
+
+      ```
+      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+      {"body": "## Ready for Review\n\nPR: [PR link]\n\n## Testing\nApp running at http://devteam-dev:3000\n\n## How to Test\n1. Navigate to http://devteam-dev:3000\n2. [Specific steps to verify each acceptance criterion]\n\nAll acceptance criteria addressed. All tests passing."}
+      ```
+
+   p. **Move the ticket to `in-review`:**
+
+      ```
+      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      {"status": "in-review"}
+      ```
+
+   q. **Post on the Meeting Board:**
+
+      ```
+      POST ${MEETING_BOARD_URL}/api/channels/review/messages
+      {"body": "TICKET-ID ready for review. PR: [link]. App running at http://devteam-dev:3000."}
+      ```
+
+**Pick up only ONE new ticket at a time. Focus beats multitasking.**
+
+---
+
+## Priority 5: Check Meeting Board
+
+No ticket work right now. Check if anyone needs you.
+
+**Steps:**
+
+1. Check for @dev mentions:
+
+   ```
+   GET ${MEETING_BOARD_URL}/api/mentions?persona=dev&since={last_heartbeat_iso}
+   ```
+
+2. For each mention:
+   - Read the full message and thread context
+   - If it is a question you can answer, respond directly
+   - If it requires investigation, acknowledge and say when you will follow up
+   - If it is not actionable for you, acknowledge that you saw it
+
+3. Scan relevant channels for context:
+
+   ```
+   GET ${MEETING_BOARD_URL}/api/channels/standup/messages?since={last_heartbeat_iso}
+   GET ${MEETING_BOARD_URL}/api/channels/planning/messages?since={last_heartbeat_iso}
+   GET ${MEETING_BOARD_URL}/api/channels/review/messages?since={last_heartbeat_iso}
+   ```
+
+---
+
+## Priority 6: Idle
+
+Nothing to do. Communicate it.
+
+**Steps:**
+
+1. Check when you last posted an idle message in #standup. If it has been
+   less than 60 minutes, do nothing. Do not spam the channel.
+
+2. If it has been more than 60 minutes since your last idle post:
+
+   ```
+   POST ${MEETING_BOARD_URL}/api/channels/standup/messages
+   {"body": "DEV: No assigned tickets. Available for work. Last completed: [ticket ID or 'none yet today']."}
+   ```
+
+3. Optionally check the backlog for upcoming tickets you could prepare for
+   (read-only, do NOT assign yourself):
+
+   ```
+   GET ${PLANNING_BOARD_URL}/api/tickets?status=backlog&limit=5
+   ```
+
+   If you spot something you could start preparing for (researching an API,
+   reading docs), you may do so -- but do NOT move or assign the ticket.
+
+---
+
+## Heartbeat Hygiene
+
+- Record the current timestamp at the start of each heartbeat for use as
+  `last_heartbeat_iso` in the next cycle.
+- If any API call fails, log the error and continue to the next step. Do not
+  let one failed call block your entire heartbeat.
+- If the planning board or meeting board is unreachable, retry once after 30
+  seconds. If still unreachable, log it and wait for the next heartbeat.
+- Keep heartbeat execution under 2 minutes. If a fix or implementation will
+  take longer, start it and continue on the next heartbeat.
+- **The app you start for QA must keep running between heartbeats.** Do not
+  stop it until the ticket leaves `in-review` / `in-qa`.

@@ -1,0 +1,29 @@
+{
+  "name": "taskboard",
+  "version": "1.0.0",
+  "description": "Simple Kanban task board for team collaboration",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js"
+  },
+  "keywords": [
+    "kanban",
+    "taskboard",
+    "project-management"
+  ],
+  "author": "MnemoShare",
+  "license": "MIT",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.980.0",
+    "@aws-sdk/lib-storage": "^3.980.0",
+    "bcryptjs": "^2.4.3",
+    "connect-mongo": "^5.1.0",
+    "ejs": "^3.1.9",
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "mongodb": "^6.3.0",
+    "multer": "^2.0.2",
+    "ws": "^8.19.0"
+  }
+}

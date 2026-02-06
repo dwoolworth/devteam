@@ -1,0 +1,39 @@
+{
+  "name": "devteam-agent",
+  "version": "1.0.0",
+  "runtime": {
+    "headless": true,
+    "port": 18789,
+    "log_level": "info",
+    "max_retries": 3,
+    "retry_delay_ms": 5000
+  },
+  "workspace": {
+    "root": "/home/agent/workspace",
+    "persist": true
+  },
+  "integrations": {
+    "meeting_board": {
+      "url": "${MEETING_BOARD_URL:-http://meeting-board:8080}",
+      "auth_token": "${MEETING_BOARD_TOKEN}",
+      "channels": [
+        "standup",
+        "planning",
+        "review",
+        "retrospective",
+        "ad-hoc"
+      ]
+    },
+    "planning_board": {
+      "url": "${PLANNING_BOARD_URL:-https://planning.mnemoshare.com}",
+      "auth_token": "${PLANNING_BOARD_TOKEN}"
+    }
+  },
+  "api_keys": {},
+  "agent": {
+    "role": "base",
+    "heartbeat_interval_seconds": 30,
+    "idle_timeout_seconds": 300,
+    "max_concurrent_tickets": 1
+  }
+}

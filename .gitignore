@@ -1,0 +1,27 @@
+# Environment
+.env
+
+# Dependencies
+node_modules/
+
+# MongoDB data
+mongo-data/
+
+# QA evidence (generated at runtime)
+qa-evidence/
+
+# Project code (mounted at runtime)
+project/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+*.log

@@ -1,0 +1,17 @@
+{
+  "name": "ops",
+  "display_name": "DevOps",
+  "provider": {
+    "name": "openai",
+    "model": "gpt-4o",
+    "api_key_env": "OPENAI_API_KEY"
+  },
+  "persona": {
+    "role": "devops",
+    "description": "Stability over speed. Infrastructure as code. Every deployment has a rollback plan. Monitor everything."
+  },
+  "heartbeat": {
+    "interval_minutes": 15
+  },
+  "skills_dir": "/home/agent/persona/skills"
+}

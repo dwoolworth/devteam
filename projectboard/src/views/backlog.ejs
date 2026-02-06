@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TaskBoard - Backlog</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <header>
+    <h1>🎯 <%= board.name %></h1>
+    <nav>
+      <a href="/board/<%= board._id %>" class="<%= view === 'swimlane' ? 'active' : '' %>">Swimlane View</a>
+      <a href="/board/<%= board._id %>/backlog" class="<%= view === 'backlog' ? 'active' : '' %>">Backlog</a>
+      <a href="/board/<%= board._id %>/archive" class="<%= view === 'archive' ? 'active' : '' %>">Archive</a>
+      <button id="addTaskBtn" class="btn-primary">+ New Task</button>
+      <span class="user-info">👤 <%= user.name %></span>
+      <a href="/change-password">🔐</a>
+      <a href="/logout">Logout</a>
+    </nav>
+  </header>
+
+  <main class="backlog-container">
+    <div class="backlog-header">
+      <h2>📋 All Tasks - Backlog View</h2>
+      <div class="backlog-stats">
+        <span>Total: <%= tasks.length %></span>
+        <span>Points: <%= tasks.reduce((sum, t) => sum + (t.complexity || 0), 0) %></span>
+      </div>
+    </div>
+    
+    <table class="backlog-table">
+      <thead>
+        <tr>
+          <th class="col-handle"></th>
+          <th>Ticket</th>
+          <th>Pri</th>
+          <th>Name</th>
+          <th>Description</th>
+          <th>Status</th>
+          <th>Pts</th>
+          <th>Author</th>
+          <th>Assignee</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody id="backlogBody">
+        <% tasks.forEach((task, index) => { %>
+          <tr data-id="<%= task._id %>" data-order="<%= task.backlogOrder || index %>" class="status-<%= task.status %> backlog-row" draggable="true">
+            <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
+            <td class="ticket-number"><%= task.ticketNumber || '-' %></td>
+            <td>
+              <select class="priority-select" data-task-id="<%= task._id %>">
+                <% for (let p = 1; p <= tasks.length; p++) { %>
+                  <option value="<%= p %>" <%= task.priority == p ? 'selected' : '' %>><%= p %></option>
+                <% } %>
+              </select>
+            </td>
+            <td class="task-name"><%= task.name %></td>
+            <td class="task-desc"><%= task.description ? task.description.substring(0, 80) + (task.description.length > 80 ? '...' : '') : '-' %></td>
+            <td>
+              <select class="status-select" data-task-id="<%= task._id %>">
+                <option value="backlog" <%= task.status === 'backlog' ? 'selected' : '' %>>Backlog</option>
+                <option value="todo" <%= task.status === 'todo' ? 'selected' : '' %>>TODO</option>
+                <option value="in-progress" <%= task.status === 'in-progress' ? 'selected' : '' %>>In Progress</option>
+                <option value="in-qa" <%= task.status === 'in-qa' ? 'selected' : '' %>>In QA</option>
+                <option value="completed" <%= task.status === 'completed' ? 'selected' : '' %>>Completed</option>
+              </select>
+            </td>
+            <td class="points"><%= task.complexity || '-' %></td>
+            <td>
+              <% const authorUser = users.find(u => u.email === task.createdBy); %>
+              <%= authorUser ? authorUser.avatar + ' ' + authorUser.name : (task.createdBy ? task.createdBy.split('@')[0] : '-') %>
+            </td>
+            <td>
+              <% const assignedUser = users.find(u => u.email === task.assignee); %>
+              <%= assignedUser ? assignedUser.avatar + ' ' + assignedUser.name : '-' %>
+            </td>
+            <td>
+              <button class="btn-edit" data-id="<%= task._id %>">✏️</button>
+            </td>
+          </tr>
+        <% }); %>
+      </tbody>
+    </table>
+  </main>
+
+  <!-- Task Modal (same as board view) -->
+  <div id="taskModal" class="modal">
+    <div class="modal-content modal-xlarge">
+      <span class="close">&times;</span>
+      <h2 id="modalTitle">New Task</h2>
+      
+      <div class="modal-body-scrollable">
+        <form id="taskForm">
+        <input type="hidden" id="taskId" name="id">
+        <input type="hidden" id="boardId" name="boardId" value="<%= board._id %>">
+        
+        <div class="form-group">
+          <label for="taskName">Name *</label>
+          <input type="text" id="taskName" name="name" required>
+        </div>
+        
+        <div class="form-group">
+          <label for="taskDescription">Description</label>
+          <textarea id="taskDescription" name="description" rows="4"></textarea>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="taskPriority">Priority (1-5)</label>
+            <select id="taskPriority" name="priority">
+              <option value="1">1 - Lowest</option>
+              <option value="2">2 - Low</option>
+              <option value="3" selected>3 - Medium</option>
+              <option value="4">4 - High</option>
+              <option value="5">5 - Critical</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="taskComplexity">Story Points</label>
+            <select id="taskComplexity" name="complexity">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3" selected>3</option>
+              <option value="5">5</option>
+              <option value="8">8</option>
+              <option value="13">13</option>
+              <option value="21">21</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="form-row">
+          <div class="form-group">
+            <label for="taskStatus">Status</label>
+            <select id="taskStatus" name="status">
+              <option value="backlog">📋 Backlog</option>
+              <option value="todo">📝 TODO</option>
+              <option value="in-progress">🔨 In Progress</option>
+              <option value="in-qa">🧪 In QA</option>
+              <option value="completed">✅ Completed</option>
+              <option value="rfp">🚀 Ready for Prod</option>
+              <option value="closed">📦 Closed</option>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="taskAssignee">Assignee</label>
+            <select id="taskAssignee" name="assignee">
+              <option value="">Unassigned</option>
+              <% users.forEach(u => { %>
+                <option value="<%= u.email %>"><%= u.avatar %> <%= u.name %></option>
+              <% }); %>
+            </select>
+          </div>
+          
+          <div class="form-group">
+            <label for="taskRelease">Release</label>
+            <input type="text" id="taskRelease" name="release" placeholder="e.g. v1.2.0">
+          </div>
+        </div>
+        
+        <div class="form-actions">
+          <button type="button" id="deleteTaskBtn" class="btn-danger" style="display: none;">Delete</button>
+          <button type="submit" class="btn-primary">Save Task</button>
+        </div>
+      </form>
+      
+      <!-- Comments/History Section (visible when editing) -->
+      <div id="commentsSection" class="comments-section" style="display: none;">
+        <div class="tabs">
+          <button type="button" class="tab-btn active" data-tab="comments">💬 Comments</button>
+          <button type="button" class="tab-btn" data-tab="history">📜 History</button>
+        </div>
+        
+        <div id="commentsTab" class="tab-content active">
+          <div id="commentsList" class="comments-list"></div>
+          <div class="add-comment">
+            <textarea id="newComment" placeholder="Add a comment... Use @name to mention someone"></textarea>
+            <button type="button" id="addCommentBtn" class="btn-primary">Post Comment</button>
+          </div>
+        </div>
+        
+        <div id="historyTab" class="tab-content" style="display: none;">
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Pass users to JS for modal and mentions
+    window.USERS = <%- JSON.stringify(users) %>;
+    window.BOARD_ID = '<%= board._id %>';
+  </script>
+  <script src="/js/board.js"></script>
+  <script>
+    // Backlog drag-and-drop reordering
+    document.addEventListener('DOMContentLoaded', () => {
+      const tbody = document.getElementById('backlogBody');
+      let draggedRow = null;
+      let dragOverRow = null;
+      
+      // Handle priority dropdown changes - move row to new position
+      tbody.addEventListener('change', async (e) => {
+        if (e.target.classList.contains('priority-select')) {
+          const row = e.target.closest('.backlog-row');
+          const newPriority = parseInt(e.target.value);
+          const rows = Array.from(tbody.querySelectorAll('.backlog-row'));
+          const currentIndex = rows.indexOf(row);
+          const targetIndex = newPriority - 1; // Priority is 1-indexed
+          
+          if (currentIndex !== targetIndex && targetIndex >= 0 && targetIndex < rows.length) {
+            // Remove row and insert at new position
+            row.remove();
+            if (targetIndex >= rows.length - 1) {
+              tbody.appendChild(row);
+            } else {
+              const targetRow = tbody.querySelectorAll('.backlog-row')[targetIndex];
+              tbody.insertBefore(row, targetRow);
+            }
+            
+            // Save new order
+            await saveBacklogOrder();
+          }
+        }
+      });
+      
+      let dragFromHandle = false;
+      
+      // Track if mousedown was on a drag handle
+      tbody.addEventListener('mousedown', (e) => {
+        dragFromHandle = e.target.classList.contains('drag-handle') || 
+                         e.target.closest('.drag-handle') !== null;
+      });
+      
+      tbody.querySelectorAll('.backlog-row').forEach(row => {
+        row.addEventListener('dragstart', (e) => {
+          // Only allow drag if it started from the handle
+          if (!dragFromHandle) {
+            e.preventDefault();
+            return;
+          }
+          draggedRow = row;
+          row.classList.add('dragging');
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', row.dataset.id);
+        });
+        
+        row.addEventListener('dragend', () => {
+          row.classList.remove('dragging');
+          tbody.querySelectorAll('.backlog-row').forEach(r => {
+            r.classList.remove('drag-over-above', 'drag-over-below');
+          });
+          draggedRow = null;
+          dragOverRow = null;
+        });
+        
+        row.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          if (!draggedRow || draggedRow === row) return;
+          
+          const rect = row.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2;
+          
+          row.classList.remove('drag-over-above', 'drag-over-below');
+          if (e.clientY < midY) {
+            row.classList.add('drag-over-above');
+          } else {
+            row.classList.add('drag-over-below');
+          }
+          dragOverRow = row;
+        });
+        
+        row.addEventListener('dragleave', () => {
+          row.classList.remove('drag-over-above', 'drag-over-below');
+        });
+        
+        row.addEventListener('drop', async (e) => {
+          e.preventDefault();
+          if (!draggedRow || draggedRow === row) return;
+          
+          const rect = row.getBoundingClientRect();
+          const midY = rect.top + rect.height / 2;
+          const insertBefore = e.clientY < midY;
+          
+          // Move in DOM
+          if (insertBefore) {
+            tbody.insertBefore(draggedRow, row);
+          } else {
+            tbody.insertBefore(draggedRow, row.nextSibling);
+          }
+          
+          row.classList.remove('drag-over-above', 'drag-over-below');
+          
+          // Save new order
+          await saveBacklogOrder();
+        });
+        
+      });
+      
+      async function saveBacklogOrder() {
+        const rows = tbody.querySelectorAll('.backlog-row');
+        const order = Array.from(rows).map((row, index) => ({
+          id: row.dataset.id,
+          order: index
+        }));
+        
+        try {
+          const response = await fetch('/api/tasks/reorder', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ order })
+          });
+          
+          if (!response.ok) {
+            throw new Error('Failed to save order');
+          }
+          
+          // Update priority dropdowns to reflect new positions
+          updatePriorityDropdowns();
+          
+          // Show brief success indicator
+          showOrderSaved();
+        } catch (error) {
+          console.error('Failed to save backlog order:', error);
+          alert('Failed to save order. Please refresh and try again.');
+        }
+      }
+      
+      function updatePriorityDropdowns() {
+        const rows = tbody.querySelectorAll('.backlog-row');
+        rows.forEach((row, index) => {
+          const select = row.querySelector('.priority-select');
+          if (select) {
+            // Update selected value to match position (1-indexed)
+            select.value = (index + 1).toString();
+          }
+        });
+      }
+      
+      function showOrderSaved() {
+        let indicator = document.getElementById('order-saved');
+        if (!indicator) {
+          indicator = document.createElement('div');
+          indicator.id = 'order-saved';
+          indicator.style.cssText = `
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            background: var(--accent-green);
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            z-index: 1000;
+            animation: fade-in 0.2s ease-out;
+          `;
+          document.body.appendChild(indicator);
+        }
+        indicator.textContent = '✓ Order saved';
+        indicator.style.display = 'block';
+        
+        setTimeout(() => {
+          indicator.style.display = 'none';
+        }, 1500);
+      }
+    });
+  </script>
+</body>
+</html>

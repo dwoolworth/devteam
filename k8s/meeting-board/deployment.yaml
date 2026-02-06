@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: meeting-board
+  namespace: devteam
+  labels:
+    app: meeting-board
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: meeting-board
+  template:
+    metadata:
+      labels:
+        app: meeting-board
+    spec:
+      containers:
+        - name: meeting-board
+          image: devteam/meeting-board:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: MONGO_URI
+              value: "mongodb://mongo:27017"
+            - name: DB_NAME
+              value: "meetingboard"
+            - name: PORT
+              value: "8080"
+            - name: AUTH_TOKENS
+              valueFrom:
+                secretKeyRef:
+                  name: meeting-board-tokens
+                  key: auth-tokens
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "500m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: meeting-board
+  namespace: devteam
+spec:
+  selector:
+    app: meeting-board
+  ports:
+    - port: 8080
+      targetPort: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: meeting-board-ingress
+  namespace: devteam
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/websocket-services: meeting-board
+spec:
+  rules:
+    - host: meeting-board.devteam.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: meeting-board
+                port:
+                  number: 8080

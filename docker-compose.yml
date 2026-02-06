@@ -1,0 +1,226 @@
+version: "3.8"
+
+networks:
+  devteam:
+    driver: bridge
+
+volumes:
+  mongo-data:
+  project-code:
+
+services:
+  # ---------------------------------------------------------------------------
+  # MongoDB - Shared persistence (Meeting Board + Project Board)
+  # ---------------------------------------------------------------------------
+  mongo:
+    image: mongo:7
+    container_name: devteam-mongo
+    restart: unless-stopped
+    networks:
+      - devteam
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Project Board - Task/ticket management (Node.js + MongoDB)
+  # ---------------------------------------------------------------------------
+  project-board:
+    build:
+      context: ./projectboard
+      dockerfile: Dockerfile
+    container_name: devteam-project-board
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "${PROJECT_BOARD_PORT:-8088}:3000"
+    environment:
+      - MONGODB_URI=mongodb://mongo:27017/taskboard
+      - MONGODB_DATABASE=taskboard
+      - PORT=3000
+      - SESSION_SECRET=${PB_SESSION_SECRET:-devteam-session-secret-change-me}
+      - PB_DEFAULT_PASSWORD=${PB_DEFAULT_PASSWORD:-devteam2025}
+      - MB_TOKEN_PO=${MB_TOKEN_PO}
+      - MB_TOKEN_DEV=${MB_TOKEN_DEV}
+      - MB_TOKEN_CQ=${MB_TOKEN_CQ}
+      - MB_TOKEN_QA=${MB_TOKEN_QA}
+      - MB_TOKEN_OPS=${MB_TOKEN_OPS}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Meeting Board - Go microservice (communication layer)
+  # ---------------------------------------------------------------------------
+  meeting-board:
+    build:
+      context: ./meeting-board
+      dockerfile: Dockerfile
+    container_name: devteam-meeting-board
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "${MEETING_BOARD_PORT:-8080}:8080"
+    environment:
+      - MONGO_URI=${MONGO_URI:-mongodb://mongo:27017}
+      - DB_NAME=${MONGO_DB:-meetingboard}
+      - PORT=8080
+      - AUTH_TOKENS=${AUTH_TOKENS:-po:dev-token,dev:dev-token,cq:dev-token,qa:dev-token,ops:dev-token}
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # PO - Project Owner (x.ai / Grok) — "Piper"
+  # ---------------------------------------------------------------------------
+  po:
+    build:
+      context: ./images/po
+      dockerfile: Dockerfile
+    container_name: devteam-po
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "18790:18789"
+    environment:
+      - XAI_API_KEY=${XAI_API_KEY}
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_TOKEN=${MB_TOKEN_PO}
+      - PLANNING_BOARD_URL=http://project-board:3000
+      - PLANNING_BOARD_TOKEN=${PB_TOKEN_PO}
+      - HUMAN_COMMS_TYPE=${HUMAN_COMMS_TYPE:-meeting-board}
+      - HUMAN_COMMS_WEBHOOK_URL=${HUMAN_COMMS_WEBHOOK_URL:-}
+    depends_on:
+      meeting-board:
+        condition: service_healthy
+      project-board:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # DEV - Developer (Anthropic / Claude) — "Devon"
+  # ---------------------------------------------------------------------------
+  dev:
+    build:
+      context: ./images/dev
+      dockerfile: Dockerfile
+    container_name: devteam-dev
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "18791:18789"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_TOKEN=${MB_TOKEN_DEV}
+      - PLANNING_BOARD_URL=http://project-board:3000
+      - PLANNING_BOARD_TOKEN=${PB_TOKEN_DEV}
+    volumes:
+      - ${PROJECT_CODE_PATH:-./project}:/home/agent/workspace/project:rw
+    depends_on:
+      meeting-board:
+        condition: service_healthy
+      project-board:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # CQ - Code Quality / Security (Anthropic / Claude) — "Carmen"
+  # ---------------------------------------------------------------------------
+  cq:
+    build:
+      context: ./images/cq
+      dockerfile: Dockerfile
+    container_name: devteam-cq
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "18792:18789"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_TOKEN=${MB_TOKEN_CQ}
+      - PLANNING_BOARD_URL=http://project-board:3000
+      - PLANNING_BOARD_TOKEN=${PB_TOKEN_CQ}
+    volumes:
+      - ${PROJECT_CODE_PATH:-./project}:/home/agent/workspace/project:ro
+    depends_on:
+      meeting-board:
+        condition: service_healthy
+      project-board:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # QA - Quality Assurance (Anthropic / Claude) — "Quinn"
+  # ---------------------------------------------------------------------------
+  qa:
+    build:
+      context: ./images/qa
+      dockerfile: Dockerfile
+    container_name: devteam-qa
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "18793:18789"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_TOKEN=${MB_TOKEN_QA}
+      - PLANNING_BOARD_URL=http://project-board:3000
+      - PLANNING_BOARD_TOKEN=${PB_TOKEN_QA}
+      - QA_EVIDENCE_PATH=/home/agent/evidence
+    volumes:
+      - ${QA_EVIDENCE_PATH:-./qa-evidence}:/home/agent/evidence
+    depends_on:
+      meeting-board:
+        condition: service_healthy
+      project-board:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # OPS - DevOps (OpenAI / GPT) — "Rafael"
+  # ---------------------------------------------------------------------------
+  ops:
+    build:
+      context: ./images/ops
+      dockerfile: Dockerfile
+    container_name: devteam-ops
+    restart: unless-stopped
+    networks:
+      - devteam
+    ports:
+      - "18794:18789"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_TOKEN=${MB_TOKEN_OPS}
+      - PLANNING_BOARD_URL=http://project-board:3000
+      - PLANNING_BOARD_TOKEN=${PB_TOKEN_OPS}
+    volumes:
+      - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
+    depends_on:
+      meeting-board:
+        condition: service_healthy
+      project-board:
+        condition: service_healthy
