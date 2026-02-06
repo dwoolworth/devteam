@@ -1,18 +1,16 @@
 # DevTeam
 
-A containerized autonomous AI development team. Five AI personas — Product Owner, Developer, Code Quality, QA, and DevOps — collaborate through a shared Meeting Board and Project Board, following a strict ticket lifecycle to ship software without human intervention.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Go](https://img.shields.io/badge/Go-1.23+-00ADD8?logo=go&logoColor=white)](https://go.dev)
+[![Docker](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
 
-## The Team
+An autonomous AI development team that ships software without human intervention. Five AI personas — Product Owner, Developer, Code Quality, QA, and DevOps — collaborate through a shared communication layer, follow a strict ticket lifecycle, and drive code from backlog to production.
 
-| Role | Name   | AI Provider       | Email                | What They Do |
-|------|--------|-------------------|----------------------|-------------|
-| PO   | Piper  | x.ai / Grok       | piper@devteam.local  | Owns vision, assigns work, enforces the ticket lifecycle |
-| DEV  | Devon  | Anthropic / Claude | devon@devteam.local  | Writes code, runs tests, creates PRs, merges after QA pass |
-| CQ   | Carmen | Anthropic / Claude | carmen@devteam.local | Reviews code for security, quality, and maintainability |
-| QA   | Quinn  | Anthropic / Claude | quinn@devteam.local  | Tests against acceptance criteria with Playwright and curl |
-| OPS  | Rafael | OpenAI / GPT       | rafael@devteam.local | Deploys releases, manages infrastructure |
+No direct bot-to-bot communication. No shared memory. No shortcuts. Just a disciplined team that follows process.
 
-## Architecture
+## How It Works
+
+Every AI persona runs in its own Docker container. They communicate exclusively through a central **Meeting Board** and track work on a **Project Board**. This is the cardinal rule: if it didn't happen on the board, it didn't happen.
 
 ```
  +--------------------------------------------------------------------------+
@@ -32,21 +30,32 @@ A containerized autonomous AI development team. Five AI personas — Product Own
  |  +-------------------------------------------------------------------+  |
  |            |                                                            |
  |  +-------------------------------------------------------------------+  |
- |  |            Project Board (Node.js) :3000                          |  |
+ |  |            Project Board (Node.js) :8088                          |  |
  |  |  Ticket CRUD  |  Comments  |  Bearer Auth  |  WebSocket          |  |
  |  +-------------------------------------------------------------------+  |
  |            |                                                            |
  |            v                                                            |
  |  +-------------------------------------------------------------------+  |
  |  |                     MongoDB :27017                                |  |
- |  |            meetingboard DB  |  taskboard DB                       |  |
  |  +-------------------------------------------------------------------+  |
  +--------------------------------------------------------------------------+
 ```
 
-**Cardinal Rule:** No persona ever communicates directly with another persona. All bot-to-bot communication flows through the Meeting Board.
+## The Team
 
-## Ticket Lifecycle (THE LAW)
+| Role | Name | AI Provider | What They Do |
+|------|------|-------------|-------------|
+| **PO** | Piper | x.ai / Grok | Owns the vision, writes acceptance criteria, assigns work, enforces process |
+| **DEV** | Devon | Anthropic / Claude | Writes code, runs tests in Docker, creates PRs, iterates on feedback |
+| **CQ** | Carmen | Anthropic / Claude | Reviews every PR for security, quality, and maintainability |
+| **QA** | Quinn | Anthropic / Claude | Tests against acceptance criteria with Playwright and curl |
+| **OPS** | Rafael | OpenAI / GPT | Deploys releases, manages infrastructure, always has a rollback plan |
+
+Each persona has its own identity files (SOUL.md, HEARTBEAT.md, IDENTITY.md, TOOLS.md) that define personality, operational loops, and behavioral boundaries. They don't just execute tasks — they have opinions, priorities, and standards.
+
+## The Ticket Lifecycle
+
+This is THE LAW. Every persona understands it. PO enforces it every 15 minutes.
 
 ```
 backlog → todo → in-progress → in-review → in-qa → completed → rfp → closed
@@ -56,167 +65,140 @@ backlog → todo → in-progress → in-review → in-qa → completed → rfp �
                          Back to in-progress
 ```
 
-| Column      | Who Moves Here | Trigger |
-|-------------|---------------|---------|
-| Backlog     | PO            | Ticket created |
-| TODO        | PO            | Prioritized, acceptance criteria written, assigned |
-| In Progress | DEV           | Work started (or pushed back from CQ/QA) |
-| In Review   | DEV           | PR submitted, ready for code review |
-| In QA       | CQ            | Code review passed |
-| Completed   | QA            | All acceptance criteria verified |
-| RFP         | DEV           | PR merged to main |
-| Closed      | PO            | Deployed to production |
+There are no shortcuts. When QA fails a ticket, it goes back through the **full pipeline** — DEV fixes, CQ re-reviews, QA re-tests. Every time.
 
-### DEV Priority Order
+**DEV priority order:**
+1. Merge first — completed tickets waiting for merge
+2. Fix bugs second — tickets rejected by CQ or QA
+3. New work last — pick from TODO
 
-1. **Merge first** — Check Completed for tickets needing merge → RFP
-2. **Fix bugs second** — In Progress tickets pushed back from CQ/QA
-3. **New work last** — Pick up from TODO
+### The Quinn Problem
+
+Named after an early bug in the system: QA would write a detailed failure comment but forget to change the ticket status. The board looked fine, but work had silently stalled.
+
+PO now detects this every heartbeat — scanning for tickets with failure comments but unchanged status — and publicly calls it out. Comment AND status change, always, every time.
+
+## Why This Architecture
+
+Most multi-agent AI systems let agents talk directly to each other. This creates invisible side channels, makes debugging impossible, and produces systems that fail in unpredictable ways.
+
+DevTeam takes a different approach:
+
+- **No direct communication** — Every interaction goes through the Meeting Board. If it's not there, it didn't happen.
+- **Complete auditability** — Every message, every status change, every decision is in MongoDB with a full audit trail.
+- **Decoupled personas** — Any agent can be restarted, replaced, or scaled without affecting the others.
+- **Real testing** — QA uses actual Playwright with headless Chromium, not simulated test results. Screenshots saved as evidence.
+- **Provider-agnostic** — The architecture doesn't care which LLM powers each persona. Swap providers without rebuilding.
 
 ## Quick Start
 
 ### Prerequisites
 
 - Docker 20.10+ and Docker Compose v2+
-- API keys: `XAI_API_KEY` (PO), `ANTHROPIC_API_KEY` (DEV/CQ/QA), `OPENAI_API_KEY` (OPS)
+- API keys: `XAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`
 
 ### Setup
 
 ```bash
-git clone git@github.com:MnemoShare/devteam.git
+git clone https://github.com/dwoolworth/devteam.git
 cd devteam
 cp .env.example .env
-# Edit .env with your API keys and generate auth tokens
+# Edit .env with your API keys
 ```
 
-### Generate auth tokens
+Generate auth tokens:
 
 ```bash
-# Meeting Board tokens (one per persona)
 for role in PO DEV CQ QA OPS; do
   echo "MB_TOKEN_${role}=$(openssl rand -hex 32)"
 done
+# Paste into .env
 ```
 
 ### Start
 
 ```bash
-make build    # Build all images
-make up       # Start all 8 services
+make build    # Build all 8 images
+make up       # Start the team
 ```
 
 ### Verify
 
 ```bash
-docker compose ps                    # All services running/healthy
-open http://localhost:8080           # Meeting Board dashboard
-open http://localhost:8088           # Project Board UI
+open http://localhost:8080    # Meeting Board dashboard
+open http://localhost:8088    # Project Board UI
 ```
 
-### Extract Project Board tokens
-
-On first startup, the Project Board auto-generates API tokens for each agent:
+On first startup, extract Project Board tokens from the logs:
 
 ```bash
 docker compose logs project-board | grep "API Tokens" -A 10
-```
-
-Paste the tokens into `.env` as `PB_TOKEN_PO`, `PB_TOKEN_DEV`, etc., then restart the agents:
-
-```bash
+# Paste tokens into .env as PB_TOKEN_PO, PB_TOKEN_DEV, etc.
 docker compose restart po dev cq qa ops
 ```
 
-## Services
-
-| Service        | Container Name         | Host Port | Purpose |
-|---------------|------------------------|-----------|---------|
-| mongo         | devteam-mongo          | —         | Shared MongoDB (meetingboard + taskboard DBs) |
-| project-board | devteam-project-board  | 8088      | Ticket management UI and API |
-| meeting-board | devteam-meeting-board  | 8080      | Communication hub + dashboard |
-| po            | devteam-po             | 18790     | Product Owner agent |
-| dev           | devteam-dev            | 18791     | Developer agent |
-| cq            | devteam-cq             | 18792     | Code Quality agent |
-| qa            | devteam-qa             | 18793     | QA agent |
-| ops           | devteam-ops            | 18794     | DevOps agent |
-
-## File Structure
-
-```
-devteam/
-├── docker-compose.yml          # 8 services on devteam network
-├── .env.example                # Environment template
-├── Makefile                    # Build/run shortcuts
-├── meeting-board/              # Go microservice (communication hub)
-│   ├── main.go
-│   ├── Dockerfile
-│   ├── go.mod / go.sum
-│   └── internal/               # handlers, models, store, ws, server
-├── projectboard/               # Node.js task board
-│   ├── src/server.js
-│   ├── src/views/              # EJS templates (board, login, etc.)
-│   ├── Dockerfile
-│   └── package.json
-├── images/
-│   ├── base/                   # Ubuntu 24.04 + OpenClaw base image
-│   │   ├── Dockerfile
-│   │   ├── entrypoint.sh       # 3-layer config merge
-│   │   ├── openclaw.base.json
-│   │   └── scripts/            # healthcheck.sh, wait-for-it.sh
-│   ├── po/                     # Product Owner persona
-│   ├── dev/                    # Developer persona
-│   ├── cq/                     # Code Quality persona
-│   ├── qa/                     # QA persona (Playwright + Chromium)
-│   └── ops/                    # DevOps persona
-├── k8s/                        # Kustomize-based K8s manifests
-└── docs/
-    ├── QUICKSTART.md
-    ├── ARCHITECTURE.md
-    └── EXTENDING.md
-```
-
-Each persona directory contains:
-- `Dockerfile` — Extends base image
-- `openclaw.json` — AI provider config, heartbeat interval
-- `workspace/` — SOUL.md, HEARTBEAT.md, IDENTITY.md, TOOLS.md
-- `skills/` — Role-specific skills (git-workflow, code-review, test-runner, deploy, etc.)
-
-## Key Concepts
-
-### Meeting Board
-Go microservice with REST API, WebSocket real-time updates, and an embedded dashboard. All inter-agent communication goes here. Channels: standup, planning, review, retrospective, ad-hoc.
-
-### Project Board
-Local Node.js/Express app (forked from [MnemoShare/projectboard](https://github.com/MnemoShare/projectboard)). Runs alongside the team in Docker. Auto-seeds agent accounts on first startup. Bearer token auth for API access. Human UI at port 8088.
+## Design Decisions
 
 ### 3-Layer Config Merge
-1. **Base config** — Baked into base image
-2. **Persona config** — Copied during persona image build
-3. **Runtime overrides** — Volume-mounted at container start
 
-### The Quinn Problem
-Named after QA: failing a ticket in comments but forgetting to move the status back. PO detects and fixes this every heartbeat. The rule: comment AND status change, always, every time.
+Every persona container builds configuration in three layers:
 
-### Test Environment
-DEV runs the app inside their container on the devteam Docker network. QA accesses it at `http://devteam-dev:<port>`. QA uses Playwright (headless Chromium) for UI testing and curl/jq for API testing. Screenshots saved to `./qa-evidence/` on the host.
+1. **Base config** — Baked into the Ubuntu 24.04 base image (shared defaults)
+2. **Persona config** — Copied during persona image build (role-specific identity, skills)
+3. **Runtime overrides** — Volume-mounted at container start (environment injection)
 
-## Make Targets
+This lets you customize any persona without rebuilding images.
 
-```bash
-make help                # Show all targets
-make build               # Build all images
-make up                  # Start all services
-make down                # Stop all services
-make logs                # Tail all logs
-make logs-dev            # Tail specific service logs
-make dashboard           # Open Meeting Board dashboard
-make test-meeting-board  # Smoke test Meeting Board API
-make clean               # Stop + remove volumes + images
-make k8s-apply           # Deploy to Kubernetes
-```
+### Meeting Board (Go)
+
+Central communication hub with REST API, WebSocket real-time updates, and an embedded dashboard. Channels: standup, planning, review, retrospective, ad-hoc. Every message is attributed to an authenticated persona — bots cannot impersonate each other.
+
+### Project Board (Node.js)
+
+Kanban-style ticket management with MongoDB persistence. Auto-seeds agent accounts on first startup. Bearer token auth for API access. Human-friendly UI at port 8088.
+
+### Persona Boundaries
+
+Each persona has explicit rules about what they can and cannot do:
+
+- **PO** does NOT write code, review code, or deploy
+- **DEV** does NOT self-assign tickets or approve their own code
+- **CQ** does NOT write feature code or deploy
+- **QA** does NOT write code or review code
+- **OPS** does NOT review code or test features
+
+## Services
+
+| Service | Port | Purpose |
+|---------|------|---------|
+| MongoDB | — | Shared persistence |
+| Meeting Board | 8080 | Communication hub + dashboard |
+| Project Board | 8088 | Ticket management UI + API |
+| PO (Piper) | 18790 | Product Owner agent |
+| DEV (Devon) | 18791 | Developer agent |
+| CQ (Carmen) | 18792 | Code Quality agent |
+| QA (Quinn) | 18793 | QA agent |
+| OPS (Rafael) | 18794 | DevOps agent |
 
 ## Documentation
 
-- [QUICKSTART.md](docs/QUICKSTART.md) — Setup in under 10 minutes
-- [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Deep dive into system design
-- [EXTENDING.md](docs/EXTENDING.md) — Customize personas, add skills, scale the team
+- **[QUICKSTART.md](docs/QUICKSTART.md)** — Running in under 10 minutes
+- **[ARCHITECTURE.md](docs/ARCHITECTURE.md)** — Deep dive into system design, the cardinal rule, and the ticket lifecycle
+- **[EXTENDING.md](docs/EXTENDING.md)** — Add personas, customize skills, scale the team
+
+## Kubernetes
+
+Kustomize-based manifests in `k8s/` for production deployment. DEV runs as a StatefulSet with persistent storage; all other personas are stateless Deployments.
+
+```bash
+make k8s-apply     # Deploy to cluster
+make k8s-status    # Check status
+```
+
+## Contributing
+
+Contributions welcome. Open an issue or submit a PR.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
