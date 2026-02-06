@@ -46,7 +46,7 @@ Every AI persona runs in its own Docker container. They communicate exclusively 
 
 | Role | Name | AI Provider | What They Do |
 |------|------|-------------|-------------|
-| **PO** | Piper | x.ai / Grok | Owns the vision, writes acceptance criteria, assigns work, enforces process |
+| **PO** | Piper | x.ai / Grok | Collaborates with humans, owns the vision, writes acceptance criteria, assigns work, enforces process |
 | **DEV** | Devon | Anthropic / Claude | Writes code, runs tests in Docker, creates PRs, iterates on feedback |
 | **CQ** | Carmen | Anthropic / Claude | Reviews every PR for security, quality, and maintainability |
 | **QA** | Quinn | Anthropic / Claude | Tests against acceptance criteria with Playwright and curl |
