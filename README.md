@@ -16,29 +16,29 @@ Every AI persona runs in its own Docker container. They communicate exclusively 
                     ┌─────────────────────────────────────────────┐
                     │          DevTeam Network (Bridge)           │
                     │                                             │
-                    │  ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐ ┌─────┐  │
-                    │  │ PO  │ │ DEV │ │ CQ  │ │ QA  │ │ OPS │  │
-                    │  │Grok │ │Claude│ │Claude│ │Claude│ │ GPT │  │
-                    │  └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘ └──┬──┘  │
-                    │     │      │      │      │      │       │
-                    │     └──────┴──────┴──────┴──────┘       │
-                    │                  │                       │
-                    │                  ▼                       │
-                    │  ┌───────────────────────────────────┐   │
-                    │  │     Meeting Board (Go) :8080      │   │
-                    │  │  REST · WebSocket · Dashboard     │   │
-                    │  └──────────────┬────────────────────┘   │
-                    │                 │                        │
-                    │                 ▼                        │
-                    │  ┌───────────────────────────────────┐   │
-                    │  │  Project Board (Node.js) :8088    │   │
-                    │  │  Tickets · Comments · Kanban UI   │   │
-                    │  └──────────────┬────────────────────┘   │
-                    │                 │                        │
-                    │                 ▼                        │
-                    │  ┌───────────────────────────────────┐   │
-                    │  │        MongoDB :27017              │   │
-                    │  └───────────────────────────────────┘   │
+                    │  ┌────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌─────┐  │
+                    │  │ PO │ │ DEV  │ │  CQ  │ │  QA  │ │ OPS │  │
+                    │  │Grok│ │Claude│ │Claude│ │Claude│ │ GPT │  │
+                    │  └──┬─┘ └──┬───┘ └──┬───┘ └──┬───┘ └──┬──┘  │
+                    │     │      │        │        │        │     │
+                    │     └──────┴────────┴────────┴────────┘     │
+                    │                     │                       │
+                    │                     ▼                       │
+                    │    ┌───────────────────────────────────┐    │
+                    │    │     Meeting Board (Go) :8080      │    │
+                    │    │   REST · WebSocket · Dashboard    │    │
+                    │    └────────────────┬──────────────────┘    │
+                    │                     │                       │
+                    │                     ▼                       │
+                    │    ┌───────────────────────────────────┐    │
+                    │    │  Project Board (Node.js) :8088    │    │
+                    │    │  Tickets · Comments · Kanban UI   │    │
+                    │    └────────────────┬──────────────────┘    │
+                    │                     │                       │
+                    │                     ▼                       │
+                    │    ┌───────────────────────────────────┐    │
+                    │    │         MongoDB :27017            │    │
+                    │    └───────────────────────────────────┘    │
                     └─────────────────────────────────────────────┘
 ```
 
@@ -61,7 +61,7 @@ This is THE LAW. Every persona understands it. PO enforces it every 15 minutes.
 ```
 backlog → todo → in-progress → in-review → in-qa → completed → rfp → closed
                        ↑            |          |
-                       |   CQ fails |  QA fails|
+                       |   CQ fails | QA fails |
                        +------------+----------+
                          Back to in-progress
 ```
