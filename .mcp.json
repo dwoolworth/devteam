@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "devteam": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/derrick/projects/devteam/mcp/index.js"]
+    }
+  }
+}

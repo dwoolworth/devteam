@@ -2,14 +2,16 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System packages
+# System packages + debugging tools
 RUN apt-get update && apt-get install -y \
     curl wget git jq openssh-client build-essential \
     python3 python3-pip ca-certificates gnupg \
+    vim-tiny less procps net-tools iproute2 dnsutils strace \
+    && ln -sf /usr/bin/vim.tiny /usr/bin/vim \
     && rm -rf /var/lib/apt/lists/*
 
-# Node.js 20 LTS
-RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+# Node.js 22 LTS (required by OpenClaw)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,15 +22,16 @@ RUN curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /
     && rm -rf /var/lib/apt/lists/*
 
 # OpenClaw - AI agent runtime
-RUN npm install -g @anthropic-ai/claude-code@latest
+RUN npm install -g openclaw
 
-# Create agent user
-RUN useradd -m -u 1000 -s /bin/bash agent \
+# Create agent user (remove default ubuntu user that holds UID 1000)
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && useradd -m -u 1000 -s /bin/bash agent \
     && mkdir -p /home/agent/.openclaw /home/agent/workspace /overrides \
     && chown -R agent:agent /home/agent /overrides
 
-# Copy base configuration
-COPY openclaw.base.json /home/agent/.openclaw/config.json
+# Copy base configuration (devteam agent config — merged by entrypoint)
+COPY openclaw.base.json /home/agent/.openclaw/agent-config.json
 COPY workspace/AGENTS.md /home/agent/workspace/AGENTS.md
 COPY scripts/healthcheck.sh /usr/local/bin/healthcheck.sh
 COPY scripts/wait-for-it.sh /usr/local/bin/wait-for-it.sh

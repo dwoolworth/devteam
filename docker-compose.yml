@@ -110,6 +110,9 @@ services:
       - PLANNING_BOARD_TOKEN=${PB_TOKEN_PO}
       - HUMAN_COMMS_TYPE=${HUMAN_COMMS_TYPE:-meeting-board}
       - HUMAN_COMMS_WEBHOOK_URL=${HUMAN_COMMS_WEBHOOK_URL:-}
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${MB_TOKEN_PO}
+      - OPENCLAW_NO_ONBOARD=1
     depends_on:
       meeting-board:
         condition: service_healthy
@@ -135,6 +138,9 @@ services:
       - MEETING_BOARD_TOKEN=${MB_TOKEN_DEV}
       - PLANNING_BOARD_URL=http://project-board:3000
       - PLANNING_BOARD_TOKEN=${PB_TOKEN_DEV}
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${MB_TOKEN_DEV}
+      - OPENCLAW_NO_ONBOARD=1
     volumes:
       - ${PROJECT_CODE_PATH:-./project}:/home/agent/workspace/project:rw
     depends_on:
@@ -162,6 +168,9 @@ services:
       - MEETING_BOARD_TOKEN=${MB_TOKEN_CQ}
       - PLANNING_BOARD_URL=http://project-board:3000
       - PLANNING_BOARD_TOKEN=${PB_TOKEN_CQ}
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${MB_TOKEN_CQ}
+      - OPENCLAW_NO_ONBOARD=1
     volumes:
       - ${PROJECT_CODE_PATH:-./project}:/home/agent/workspace/project:ro
     depends_on:
@@ -190,6 +199,9 @@ services:
       - PLANNING_BOARD_URL=http://project-board:3000
       - PLANNING_BOARD_TOKEN=${PB_TOKEN_QA}
       - QA_EVIDENCE_PATH=/home/agent/evidence
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${MB_TOKEN_QA}
+      - OPENCLAW_NO_ONBOARD=1
     volumes:
       - ${QA_EVIDENCE_PATH:-./qa-evidence}:/home/agent/evidence
     depends_on:
@@ -217,10 +229,42 @@ services:
       - MEETING_BOARD_TOKEN=${MB_TOKEN_OPS}
       - PLANNING_BOARD_URL=http://project-board:3000
       - PLANNING_BOARD_TOKEN=${PB_TOKEN_OPS}
+      - OPENCLAW_GATEWAY_BIND=lan
+      - OPENCLAW_GATEWAY_TOKEN=${MB_TOKEN_OPS}
+      - OPENCLAW_NO_ONBOARD=1
     volumes:
       - ${DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
     depends_on:
       meeting-board:
         condition: service_healthy
       project-board:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # Router - @mention wake-up dispatcher (no AI, just WebSocket plumbing)
+  # ---------------------------------------------------------------------------
+  router:
+    build:
+      context: ./router
+      dockerfile: Dockerfile
+    container_name: devteam-router
+    restart: unless-stopped
+    networks:
+      - devteam
+    environment:
+      - MEETING_BOARD_URL=http://meeting-board:8080
+      - MEETING_BOARD_WS_URL=ws://meeting-board:8080/ws
+      - PO_GATEWAY_URL=ws://po:18789
+      - PO_GATEWAY_TOKEN=${MB_TOKEN_PO}
+      - DEV_GATEWAY_URL=ws://dev:18789
+      - DEV_GATEWAY_TOKEN=${MB_TOKEN_DEV}
+      - CQ_GATEWAY_URL=ws://cq:18789
+      - CQ_GATEWAY_TOKEN=${MB_TOKEN_CQ}
+      - QA_GATEWAY_URL=ws://qa:18789
+      - QA_GATEWAY_TOKEN=${MB_TOKEN_QA}
+      - OPS_GATEWAY_URL=ws://ops:18789
+      - OPS_GATEWAY_TOKEN=${MB_TOKEN_OPS}
+      - WAKE_DEBOUNCE_MS=30000
+    depends_on:
+      meeting-board:
         condition: service_healthy

@@ -1,0 +1,15 @@
+{
+  "name": "devteam-mcp",
+  "version": "1.0.0",
+  "description": "DevTeam MCP Server — Conversational AI dev team design, generation, and deployment",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "ejs": "^3.1.10",
+    "js-yaml": "^4.1.0"
+  }
+}

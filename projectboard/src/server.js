@@ -135,39 +135,55 @@ let client;
 
 // ================== AGENT NOTIFICATION SYSTEM ==================
 
-// Agent gateway configurations (Docker service names on devteam network)
-const AGENT_GATEWAYS = {
-  'piper@devteam.local': {
-    name: 'Piper',
-    role: 'po',
-    gatewayUrl: 'http://po:18789',
-    token: process.env.MB_TOKEN_PO || 'change-me-po-token'
-  },
-  'devon@devteam.local': {
-    name: 'Devon',
-    role: 'dev',
-    gatewayUrl: 'http://dev:18789',
-    token: process.env.MB_TOKEN_DEV || 'change-me-dev-token'
-  },
-  'carmen@devteam.local': {
-    name: 'Carmen',
-    role: 'cq',
-    gatewayUrl: 'http://cq:18789',
-    token: process.env.MB_TOKEN_CQ || 'change-me-cq-token'
-  },
-  'quinn@devteam.local': {
-    name: 'Quinn',
-    role: 'qa',
-    gatewayUrl: 'http://qa:18789',
-    token: process.env.MB_TOKEN_QA || 'change-me-qa-token'
-  },
-  'rafael@devteam.local': {
-    name: 'Rafael',
-    role: 'ops',
-    gatewayUrl: 'http://ops:18789',
-    token: process.env.MB_TOKEN_OPS || 'change-me-ops-token'
+// Load agent gateways from registry file or fall back to hardcoded defaults
+function loadAgentGateways() {
+  const registryPath = process.env.AGENTS_REGISTRY;
+  if (registryPath && fs.existsSync(registryPath)) {
+    try {
+      const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+      const gateways = {};
+      for (const agent of registry) {
+        const email = agent.email || `${agent.id}@devteam.local`;
+        gateways[email] = {
+          name: agent.name || agent.id,
+          role: agent.role,
+          gatewayUrl: agent.gateway ? `http://${agent.gateway.host || agent.id}:${agent.gateway.port || 18789}` : `http://${agent.id}:18789`,
+          token: agent.token || ''
+        };
+      }
+      console.log(`Loaded ${Object.keys(gateways).length} agents from registry: ${registryPath}`);
+      return gateways;
+    } catch (e) {
+      console.error(`Failed to load agents registry: ${e.message}`);
+    }
   }
-};
+
+  // Fallback: hardcoded defaults
+  return {
+    'piper@devteam.local': {
+      name: 'Piper', role: 'po',
+      gatewayUrl: 'http://po:18789', token: process.env.MB_TOKEN_PO || 'change-me-po-token'
+    },
+    'devon@devteam.local': {
+      name: 'Devon', role: 'dev',
+      gatewayUrl: 'http://dev:18789', token: process.env.MB_TOKEN_DEV || 'change-me-dev-token'
+    },
+    'carmen@devteam.local': {
+      name: 'Carmen', role: 'cq',
+      gatewayUrl: 'http://cq:18789', token: process.env.MB_TOKEN_CQ || 'change-me-cq-token'
+    },
+    'quinn@devteam.local': {
+      name: 'Quinn', role: 'qa',
+      gatewayUrl: 'http://qa:18789', token: process.env.MB_TOKEN_QA || 'change-me-qa-token'
+    },
+    'rafael@devteam.local': {
+      name: 'Rafael', role: 'ops',
+      gatewayUrl: 'http://ops:18789', token: process.env.MB_TOKEN_OPS || 'change-me-ops-token'
+    }
+  };
+}
+
+const AGENT_GATEWAYS = loadAgentGateways();
 
 // Send notification directly to agent's Clawdbot gateway
 async function sendAgentNotification(agentEmail, message) {
@@ -402,6 +418,8 @@ function formatStatus(status) {
     'backlog': 'Backlog',
     'todo': 'TODO',
     'in-progress': 'In Progress',
+    'blocked': 'Blocked',
+    'in-review': 'In Review',
     'in-qa': 'QA',
     'completed': 'Completed',
     'rfp': 'Ready for Production',
@@ -415,6 +433,8 @@ function getStatusColor(status) {
     'backlog': 0x6b7280,
     'todo': 0x3b82f6,
     'in-progress': 0xf59e0b,
+    'blocked': 0xef4444,
+    'in-review': 0xec4899,
     'in-qa': 0x8b5cf6,
     'completed': 0x10b981,
     'rfp': 0x06b6d4,
@@ -452,56 +472,54 @@ async function connectDB() {
       name: 'Main Board',
       description: 'Primary task board',
       createdAt: new Date(),
-      columns: ['backlog', 'todo', 'in-progress', 'in-review', 'in-qa', 'completed', 'rfp']
+      columns: ['backlog', 'todo', 'in-progress', 'blocked', 'in-review', 'in-qa', 'completed', 'rfp']
     });
     console.log('Created default board');
   }
   
-  // Seed team members (for task assignment)
+  // Seed team members from agent registry (for task assignment)
   const userCount = await db.collection('users').countDocuments();
   if (userCount === 0) {
-    await db.collection('users').insertMany([
-      // Human stakeholder
-      { name: 'Human', email: 'human@devteam.local', avatar: '👨‍💻', isAgent: false, createdAt: new Date() },
-      // Agents
-      { name: 'Piper', email: 'piper@devteam.local', avatar: '📋', isAgent: true, createdAt: new Date() },
-      { name: 'Devon', email: 'devon@devteam.local', avatar: '🔨', isAgent: true, createdAt: new Date() },
-      { name: 'Carmen', email: 'carmen@devteam.local', avatar: '🔍', isAgent: true, createdAt: new Date() },
-      { name: 'Quinn', email: 'quinn@devteam.local', avatar: '🧪', isAgent: true, createdAt: new Date() },
-      { name: 'Rafael', email: 'rafael@devteam.local', avatar: '🚀', isAgent: true, createdAt: new Date() }
-    ]);
-    console.log('Created team members');
+    const userDocs = [
+      { name: 'Human', email: 'human@devteam.local', avatar: '\uD83D\uDC68\u200D\uD83D\uDCBB', isAgent: false, createdAt: new Date() }
+    ];
+    for (const [email, config] of Object.entries(AGENT_GATEWAYS)) {
+      userDocs.push({
+        name: config.name,
+        email: email,
+        avatar: config.role === 'po' ? '\uD83D\uDCCB' : config.role === 'dev' ? '\uD83D\uDD28' : config.role === 'cq' ? '\uD83D\uDD0D' : config.role === 'qa' ? '\uD83E\uDDEA' : '\uD83D\uDE80',
+        isAgent: true,
+        createdAt: new Date()
+      });
+    }
+    await db.collection('users').insertMany(userDocs);
+    console.log(`Created ${userDocs.length} team members`);
   }
-  
+
   // Seed auth users with login credentials (humans + agents)
   const authUserCount = await db.collection('auth_users').countDocuments();
   if (authUserCount === 0) {
     const defaultPassword = await bcrypt.hash(process.env.PB_DEFAULT_PASSWORD || 'devteam2025', 10);
-
-    // Generate API tokens for agents
-    const piperToken = crypto.randomBytes(32).toString('hex');
-    const devonToken = crypto.randomBytes(32).toString('hex');
-    const carmenToken = crypto.randomBytes(32).toString('hex');
-    const quinnToken = crypto.randomBytes(32).toString('hex');
-    const rafaelToken = crypto.randomBytes(32).toString('hex');
-
-    await db.collection('auth_users').insertMany([
-      // Human stakeholder
-      { email: 'human@devteam.local', name: 'Human', password: defaultPassword, isAgent: false, createdAt: new Date() },
-      // Agents (with API tokens)
-      { email: 'piper@devteam.local', name: 'Piper', password: defaultPassword, isAgent: true, apiToken: piperToken, createdAt: new Date() },
-      { email: 'devon@devteam.local', name: 'Devon', password: defaultPassword, isAgent: true, apiToken: devonToken, createdAt: new Date() },
-      { email: 'carmen@devteam.local', name: 'Carmen', password: defaultPassword, isAgent: true, apiToken: carmenToken, createdAt: new Date() },
-      { email: 'quinn@devteam.local', name: 'Quinn', password: defaultPassword, isAgent: true, apiToken: quinnToken, createdAt: new Date() },
-      { email: 'rafael@devteam.local', name: 'Rafael', password: defaultPassword, isAgent: true, apiToken: rafaelToken, createdAt: new Date() }
-    ]);
-    console.log('Created auth users with default password');
-    console.log('Agent API Tokens (save these for agent configuration):');
-    console.log(`  Piper (PO):  ${piperToken}`);
-    console.log(`  Devon (DEV): ${devonToken}`);
-    console.log(`  Carmen (CQ): ${carmenToken}`);
-    console.log(`  Quinn (QA):  ${quinnToken}`);
-    console.log(`  Rafael (OPS): ${rafaelToken}`);
+    const authDocs = [
+      { email: 'human@devteam.local', name: 'Human', password: defaultPassword, isAgent: false, createdAt: new Date() }
+    ];
+    for (const [email, config] of Object.entries(AGENT_GATEWAYS)) {
+      const apiToken = crypto.randomBytes(32).toString('hex');
+      authDocs.push({
+        email: email,
+        name: config.name,
+        password: defaultPassword,
+        isAgent: true,
+        apiToken: apiToken,
+        createdAt: new Date()
+      });
+    }
+    await db.collection('auth_users').insertMany(authDocs);
+    console.log(`Created ${authDocs.length} auth users`);
+    // Log agent tokens for debugging
+    authDocs.filter(u => u.isAgent).forEach(u => {
+      console.log(`  ${u.name}: ${u.apiToken}`);
+    });
   }
   
   // Seed webhook configurations for agents (direct gateway notifications)
@@ -510,7 +528,7 @@ async function connectDB() {
     if (!existing) {
       // Each agent watches the columns relevant to their role
       const watchMap = {
-        'po': ['rfp', 'backlog'],
+        'po': ['rfp', 'backlog', 'blocked'],
         'dev': ['todo', 'in-progress', 'completed'],
         'cq': ['in-review'],
         'qa': ['in-qa'],
@@ -1115,24 +1133,26 @@ app.post('/api/tasks/:id/comments', requireApiAuth, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    const commentText = req.body.text || req.body.body || '';
     const comment = {
       id: new ObjectId().toString(),
       author: req.apiUser.email,
       authorName: req.apiUser.name,
-      text: req.body.text,
+      text: commentText,
+      body: commentText,
       timestamp: new Date()
     };
-    
+
     await db.collection('tasks').updateOne(
       { _id: taskId },
-      { 
-        $push: { 
+      {
+        $push: {
           comments: comment,
           history: {
             action: 'comment_added',
             timestamp: new Date(),
             user: req.apiUser.email,
-            details: `Comment: ${req.body.text.substring(0, 100)}${req.body.text.length > 100 ? '...' : ''}`
+            details: `Comment: ${commentText.substring(0, 100)}${commentText.length > 100 ? '...' : ''}`
           }
         },
         $set: { updatedAt: new Date() }
@@ -1268,6 +1288,410 @@ app.get('/api/boards', requireApiAuth, async (req, res) => {
   try {
     const boards = await db.collection('boards').find().toArray();
     res.json(boards);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ================== /api/tickets ALIASES ==================
+// Agent skills reference /api/tickets; the canonical routes use /api/tasks.
+// These aliases resolve ticket-number IDs (e.g. MNS-22) to ObjectIds
+// and support both PUT and PATCH for updates.
+
+async function resolveTicketId(id) {
+  // If it looks like a ticket number (contains a dash), look it up
+  if (id.includes('-')) {
+    const task = await db.collection('tasks').findOne({ ticketNumber: id.toUpperCase() });
+    return task ? task._id.toString() : null;
+  }
+  return id; // assume ObjectId
+}
+
+// List / search tickets
+app.get('/api/tickets', requireApiAuth, async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.assignee) {
+      filter.assignee = req.query.assignee === 'none' ? null : req.query.assignee;
+    }
+    if (req.query.boardId) filter.boardId = req.query.boardId;
+    if (req.query.type) filter.type = req.query.type;
+    if (req.query.priority) filter.priority = parseInt(req.query.priority);
+    if (req.query.label) filter.labels = req.query.label;
+    if (req.query.parent_id) filter.parentId = req.query.parent_id;
+
+    // Date range filters
+    if (req.query.created_after || req.query.created_before) {
+      filter.createdAt = {};
+      if (req.query.created_after) filter.createdAt.$gte = new Date(req.query.created_after);
+      if (req.query.created_before) filter.createdAt.$lte = new Date(req.query.created_before);
+    }
+    if (req.query.updated_after || req.query.updated_before) {
+      filter.updatedAt = {};
+      if (req.query.updated_after) filter.updatedAt.$gte = new Date(req.query.updated_after);
+      if (req.query.updated_before) filter.updatedAt.$lte = new Date(req.query.updated_before);
+    }
+
+    if (req.query.search) {
+      filter.$or = [
+        { name: { $regex: req.query.search, $options: 'i' } },
+        { title: { $regex: req.query.search, $options: 'i' } },
+        { description: { $regex: req.query.search, $options: 'i' } },
+        { ticketNumber: { $regex: req.query.search, $options: 'i' } },
+      ];
+    }
+
+    const limit = parseInt(req.query.limit) || 100;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const tasks = await db.collection('tasks')
+      .find(filter)
+      .sort({ updatedAt: -1 })
+      .skip(offset)
+      .limit(limit)
+      .toArray();
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get single ticket by ID or ticket number
+app.get('/api/tickets/:id', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const task = await db.collection('tasks').findOne({ _id: new ObjectId(resolved) });
+    if (!task) return res.status(404).json({ error: 'Ticket not found' });
+    res.json(task);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Create ticket (inline — mirrors POST /api/tasks)
+app.post('/api/tickets', requireApiAuth, async (req, res) => {
+  try {
+    // Auto-resolve boardId: if not provided, use the first board
+    let boardId = req.body.boardId;
+    if (!boardId) {
+      const defaultBoard = await db.collection('boards').findOne();
+      if (!defaultBoard) return res.status(400).json({ error: 'No board exists' });
+      boardId = defaultBoard._id.toString();
+    } else {
+      const board = await db.collection('boards').findOne({ _id: new ObjectId(boardId) });
+      if (!board) return res.status(400).json({ error: 'Invalid boardId - board not found' });
+    }
+
+    const ticketNumber = await getNextTicketNumber();
+
+    // Accept both "name" and "title" for the ticket name
+    const taskName = req.body.name || req.body.title || req.body.summary || 'Untitled';
+
+    const task = {
+      ...req.body,
+      name: taskName,
+      title: taskName,
+      boardId,
+      ticketNumber,
+      status: req.body.status || 'backlog',
+      priority: parseInt(req.body.priority) || 3,
+      complexity: parseInt(req.body.complexity) || 3,
+      assignee: req.body.assignee || null,
+      comments: [],
+      createdAt: new Date(),
+      createdBy: req.apiUser.email,
+      updatedAt: new Date(),
+      history: [{
+        action: 'created',
+        timestamp: new Date(),
+        user: req.apiUser.email,
+        details: 'Task created'
+      }]
+    };
+
+    const result = await db.collection('tasks').insertOne(task);
+    task._id = result.insertedId;
+
+    if (task.assignee) {
+      await notifyTaskEvent('task_assigned', task, req.apiUser.email);
+    }
+
+    broadcastToBoard(task.boardId, {
+      type: 'task_created', task, user: req.apiUser.email
+    });
+
+    res.status(201).json(task);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update ticket (PUT or PATCH)
+async function handleTicketUpdate(req, res) {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    req.params.id = resolved;
+    req.url = `/api/tasks/${resolved}`;
+    // Reuse the PUT /api/tasks/:id handler logic inline
+    const taskId = new ObjectId(resolved);
+    const existingTask = await db.collection('tasks').findOne({ _id: taskId });
+    if (!existingTask) return res.status(404).json({ error: 'Ticket not found' });
+
+    const historyEntries = [];
+    const statusChanged = req.body.status && req.body.status !== existingTask.status;
+    const assigneeChanged = req.body.assignee !== undefined && req.body.assignee !== existingTask.assignee;
+
+    if (statusChanged) {
+      historyEntries.push({
+        action: 'status_change', timestamp: new Date(), user: req.apiUser.email,
+        details: `Status: ${existingTask.status} → ${req.body.status}`
+      });
+    }
+    if (assigneeChanged) {
+      historyEntries.push({
+        action: 'assignee_change', timestamp: new Date(), user: req.apiUser.email,
+        details: `Assigned to: ${req.body.assignee || 'Unassigned'}`
+      });
+    }
+
+    const update = { ...req.body, updatedAt: new Date(), updatedBy: req.apiUser.email };
+    if (req.body.priority) update.priority = parseInt(req.body.priority);
+    if (req.body.complexity) update.complexity = parseInt(req.body.complexity);
+
+    const updateOp = { $set: update };
+    if (historyEntries.length > 0) updateOp.$push = { history: { $each: historyEntries } };
+
+    await db.collection('tasks').updateOne({ _id: taskId }, updateOp);
+    const updatedTask = await db.collection('tasks').findOne({ _id: taskId });
+
+    broadcastToBoard(updatedTask.boardId, {
+      type: 'task_updated', task: updatedTask, user: req.apiUser.email,
+      changes: { statusChanged, assigneeChanged, oldStatus: statusChanged ? existingTask.status : null, newStatus: statusChanged ? req.body.status : null }
+    });
+
+    res.json(updatedTask);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+}
+
+app.put('/api/tickets/:id', requireApiAuth, handleTicketUpdate);
+app.patch('/api/tickets/:id', requireApiAuth, handleTicketUpdate);
+
+// Delete ticket
+app.delete('/api/tickets/:id', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    req.params.id = resolved;
+    const taskId = new ObjectId(resolved);
+    const task = await db.collection('tasks').findOne({ _id: taskId });
+    if (!task) return res.status(404).json({ error: 'Ticket not found' });
+    await db.collection('tasks').deleteOne({ _id: taskId });
+    broadcastToBoard(task.boardId, { type: 'task_deleted', taskId: resolved });
+    res.json({ message: 'Ticket deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Ticket comments aliases
+app.get('/api/tickets/:id/comments', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const taskId = new ObjectId(resolved);
+    const task = await db.collection('tasks').findOne({ _id: taskId });
+    if (!task) return res.status(404).json({ error: 'Ticket not found' });
+    res.json(task.comments || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/tickets/:id/comments', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const taskId = new ObjectId(resolved);
+    const task = await db.collection('tasks').findOne({ _id: taskId });
+    if (!task) return res.status(404).json({ error: 'Ticket not found' });
+
+    const commentText = req.body.text || req.body.body || '';
+    const comment = {
+      id: new ObjectId().toString(),
+      author: req.apiUser.email,
+      authorName: req.apiUser.name,
+      text: commentText,
+      body: commentText,
+      timestamp: new Date()
+    };
+
+    await db.collection('tasks').updateOne(
+      { _id: taskId },
+      {
+        $push: {
+          comments: comment,
+          history: {
+            action: 'comment_added',
+            timestamp: new Date(),
+            user: req.apiUser.email,
+            details: `Comment: ${commentText.substring(0, 100)}${commentText.length > 100 ? '...' : ''}`
+          }
+        },
+        $set: { updatedAt: new Date() }
+      }
+    );
+
+    const mentions = parseMentions(commentText);
+    await notifyTaskEvent('comment_added', task, req.apiUser.email, {
+      comment: commentText, mentions
+    });
+
+    broadcastToBoard(task.boardId, {
+      type: 'comment_added', taskId: resolved, comment, user: req.apiUser.email
+    });
+
+    res.status(201).json(comment);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Ticket history
+app.get('/api/tickets/:id/history', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const task = await db.collection('tasks').findOne({ _id: new ObjectId(resolved) });
+    if (!task) return res.status(404).json({ error: 'Ticket not found' });
+    res.json(task.history || []);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update ticket status only
+app.put('/api/tickets/:id/status', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const taskId = new ObjectId(resolved);
+    const existingTask = await db.collection('tasks').findOne({ _id: taskId });
+    if (!existingTask) return res.status(404).json({ error: 'Ticket not found' });
+
+    const newStatus = req.body.status;
+    if (!newStatus) return res.status(400).json({ error: 'status is required' });
+
+    if (newStatus === existingTask.status) {
+      return res.json(existingTask);
+    }
+
+    const historyEntry = {
+      action: 'status_change',
+      timestamp: new Date(),
+      user: req.apiUser.email,
+      details: `Status: ${existingTask.status} → ${newStatus}`
+    };
+
+    await db.collection('tasks').updateOne(
+      { _id: taskId },
+      {
+        $set: { status: newStatus, updatedAt: new Date(), updatedBy: req.apiUser.email },
+        $push: { history: historyEntry }
+      }
+    );
+
+    const updatedTask = await db.collection('tasks').findOne({ _id: taskId });
+
+    await notifyTaskEvent('status_change', updatedTask, req.apiUser.email, {
+      statusFrom: existingTask.status, statusTo: newStatus
+    });
+
+    broadcastToBoard(updatedTask.boardId, {
+      type: 'task_updated', task: updatedTask, user: req.apiUser.email,
+      changes: { statusChanged: true, oldStatus: existingTask.status, newStatus }
+    });
+
+    res.json(updatedTask);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update ticket assignee only
+app.put('/api/tickets/:id/assignee', requireApiAuth, async (req, res) => {
+  try {
+    const resolved = await resolveTicketId(req.params.id);
+    if (!resolved) return res.status(404).json({ error: 'Ticket not found' });
+    const taskId = new ObjectId(resolved);
+    const existingTask = await db.collection('tasks').findOne({ _id: taskId });
+    if (!existingTask) return res.status(404).json({ error: 'Ticket not found' });
+
+    const newAssignee = req.body.assignee !== undefined ? req.body.assignee : req.body.email;
+    if (newAssignee === undefined) return res.status(400).json({ error: 'assignee is required' });
+
+    const historyEntry = {
+      action: 'assignee_change',
+      timestamp: new Date(),
+      user: req.apiUser.email,
+      details: `Assigned to: ${newAssignee || 'Unassigned'}`
+    };
+
+    await db.collection('tasks').updateOne(
+      { _id: taskId },
+      {
+        $set: { assignee: newAssignee, updatedAt: new Date(), updatedBy: req.apiUser.email },
+        $push: { history: historyEntry }
+      }
+    );
+
+    const updatedTask = await db.collection('tasks').findOne({ _id: taskId });
+
+    if (newAssignee) {
+      await notifyTaskEvent('task_assigned', updatedTask, req.apiUser.email);
+    }
+
+    broadcastToBoard(updatedTask.boardId, {
+      type: 'task_updated', task: updatedTask, user: req.apiUser.email,
+      changes: { assigneeChanged: true }
+    });
+
+    res.json(updatedTask);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Board summary (tickets per status)
+app.get('/api/board/summary', requireApiAuth, async (req, res) => {
+  try {
+    const pipeline = [
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ];
+    const results = await db.collection('tasks').aggregate(pipeline).toArray();
+    const summary = {};
+    for (const r of results) summary[r._id] = r.count;
+    res.json(summary);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Board workload (tickets per assignee)
+app.get('/api/board/workload', requireApiAuth, async (req, res) => {
+  try {
+    const pipeline = [
+      { $match: { status: { $nin: ['closed', 'done'] } } },
+      { $group: { _id: '$assignee', count: { $sum: 1 } } },
+    ];
+    const results = await db.collection('tasks').aggregate(pipeline).toArray();
+    const workload = {};
+    for (const r of results) workload[r._id || 'unassigned'] = r.count;
+    res.json(workload);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

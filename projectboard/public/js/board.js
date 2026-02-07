@@ -297,6 +297,8 @@ function formatStatus(status) {
     'backlog': 'Backlog',
     'todo': 'TODO',
     'in-progress': 'In Progress',
+    'blocked': 'Blocked',
+    'in-review': 'In Review',
     'in-qa': 'In QA',
     'completed': 'Completed',
     'rfp': 'Ready for Prod',

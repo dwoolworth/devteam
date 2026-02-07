@@ -11,7 +11,7 @@ set -euo pipefail
 # =============================================================================
 
 CONFIG_DIR="/home/agent/.openclaw"
-CONFIG_FILE="${CONFIG_DIR}/config.json"
+CONFIG_FILE="${CONFIG_DIR}/agent-config.json"
 WORKSPACE_DIR="/home/agent/workspace"
 PERSONA_DIR="/home/agent/persona"
 OVERRIDES_DIR="/overrides"
@@ -94,15 +94,33 @@ log "Layer 1: Base config OK"
 log "Layer 2: Applying persona configuration from ${PERSONA_DIR}"
 
 PERSONA_WORKSPACE_FILES=("SOUL.md" "HEARTBEAT.md" "IDENTITY.md" "TOOLS.md")
+OPENCLAW_WORKSPACE="${CONFIG_DIR}/workspace"
 
 if [ -d "$PERSONA_DIR" ]; then
-    # Copy persona workspace files into workspace
+    # Copy persona workspace files into BOTH the agent workspace and OpenClaw's
+    # own workspace (~/.openclaw/workspace/) which is where it actually reads them.
+    # Persona Dockerfiles place files under persona/workspace/, so check there first.
+    mkdir -p "$OPENCLAW_WORKSPACE"
     for fname in "${PERSONA_WORKSPACE_FILES[@]}"; do
-        if [ -f "${PERSONA_DIR}/${fname}" ]; then
-            cp "${PERSONA_DIR}/${fname}" "${WORKSPACE_DIR}/${fname}"
+        src=""
+        if [ -f "${PERSONA_DIR}/workspace/${fname}" ]; then
+            src="${PERSONA_DIR}/workspace/${fname}"
+        elif [ -f "${PERSONA_DIR}/${fname}" ]; then
+            src="${PERSONA_DIR}/${fname}"
+        fi
+        if [ -n "$src" ]; then
+            cp "$src" "${WORKSPACE_DIR}/${fname}"
+            cp "$src" "${OPENCLAW_WORKSPACE}/${fname}"
             log "  Copied persona file: ${fname}"
         fi
     done
+
+    # Copy skills into OpenClaw workspace so the agent can discover them
+    if [ -d "${PERSONA_DIR}/skills" ]; then
+        mkdir -p "${OPENCLAW_WORKSPACE}/skills"
+        cp -r "${PERSONA_DIR}/skills/"* "${OPENCLAW_WORKSPACE}/skills/" 2>/dev/null || true
+        log "  Copied skills directory to OpenClaw workspace"
+    fi
 
     # Deep-merge persona openclaw.json on top of base config
     if [ -f "${PERSONA_DIR}/openclaw.json" ]; then
@@ -195,8 +213,11 @@ inject_env_with_defaults() {
             UPDATED=$(jq --arg varname "${var_name}" --arg value "$var_value" '
                 walk(
                     if type == "string" then
-                        capture("(?<before>.*?)\\$\\{" + $varname + ":-(?<default>[^}]*)\\}(?<after>.*)") as $m |
-                        if $m then $m.before + $value + $m.after else . end
+                        if test("\\$\\{" + $varname + ":-[^}]*\\}") then
+                            capture("(?<before>.*?)\\$\\{" + $varname + ":-(?<default>[^}]*)\\}(?<after>.*)") |
+                            .before + $value + .after
+                        else .
+                        end
                     else .
                     end
                 )
@@ -209,8 +230,11 @@ inject_env_with_defaults() {
             UPDATED=$(jq --arg varname "${var_name}" '
                 walk(
                     if type == "string" then
-                        capture("(?<before>.*?)\\$\\{" + $varname + ":-(?<default>[^}]*)\\}(?<after>.*)") as $m |
-                        if $m then $m.before + $m.default + $m.after else . end
+                        if test("\\$\\{" + $varname + ":-[^}]*\\}") then
+                            capture("(?<before>.*?)\\$\\{" + $varname + ":-(?<default>[^}]*)\\}(?<after>.*)") |
+                            .before + .default + .after
+                        else .
+                        end
                     else .
                     end
                 )
@@ -296,24 +320,153 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Start OpenClaw in headless/server mode
+# Generate OpenClaw gateway config (openclaw.json)
+# The agent-config.json is our devteam config; openclaw.json is what OpenClaw reads.
 # -----------------------------------------------------------------------------
-log "Starting OpenClaw agent runtime..."
+OPENCLAW_CONFIG="${CONFIG_DIR}/openclaw.json"
+# AGENT_INSTANCE env var (set by generated compose) takes priority over config file
+if [ -n "${AGENT_INSTANCE:-}" ]; then
+    AGENT_NAME="${AGENT_NAME:-${AGENT_INSTANCE}}"
+else
+    AGENT_NAME=$(jq -r '.name // "devteam-agent"' "$CONFIG_FILE")
+fi
+GW_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
+GW_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
 
-AGENT_NAME=$(jq -r '.name // "devteam-agent"' "$CONFIG_FILE")
+log "Generating OpenClaw gateway config for agent: ${AGENT_NAME}"
+
+# Extract model from persona config (e.g., "xai/grok-3" from provider.name + provider.model)
+PROVIDER_NAME=$(jq -r '.provider.name // empty' "$CONFIG_FILE")
+PROVIDER_MODEL=$(jq -r '.provider.model // empty' "$CONFIG_FILE")
+if [ -n "$PROVIDER_NAME" ] && [ -n "$PROVIDER_MODEL" ]; then
+    AGENT_MODEL="${PROVIDER_NAME}/${PROVIDER_MODEL}"
+else
+    AGENT_MODEL=""
+fi
+
+# Build gateway config — OpenClaw validates against a Zod schema, so only known keys
+jq -n \
+    --argjson port "$GW_PORT" \
+    --arg bind "${OPENCLAW_GATEWAY_BIND:-lan}" \
+    --arg token "$GW_TOKEN" \
+    --arg model "$AGENT_MODEL" \
+    '{
+        gateway: {
+            mode: "local",
+            port: $port,
+            bind: $bind
+        }
+    }
+    | if $token != "" then .gateway.auth = { mode: "token", token: $token } else . end
+    | if $model != "" then .agents = { defaults: { model: { primary: $model }, heartbeat: { prompt: "You were woken by a mention or heartbeat. Use the read tool to load HEARTBEAT.md from the current directory. Then follow its instructions strictly. When responding to an @mention, you MUST use the exec tool to run curl commands to post your response back to the Meeting Board API. Never respond with plain text only — always post via the API. If nothing needs attention, reply HEARTBEAT_OK." } } } else . end
+    ' > "$OPENCLAW_CONFIG"
+
+# Generate auth-profiles.json for the AI provider API key
+AUTH_PROFILES="${CONFIG_DIR}/auth-profiles.json"
+if [ -n "$PROVIDER_NAME" ]; then
+    log "Setting up auth profile for provider: ${PROVIDER_NAME}"
+
+    # Determine which API key env var to use
+    API_KEY_ENV=$(jq -r '.provider.api_key_env // empty' "$CONFIG_FILE")
+    API_KEY_VALUE=""
+    if [ -n "$API_KEY_ENV" ]; then
+        API_KEY_VALUE="${!API_KEY_ENV:-}"
+    fi
+
+    if [ -n "$API_KEY_VALUE" ]; then
+        jq -n \
+            --arg provider "$PROVIDER_NAME" \
+            --arg key "$API_KEY_VALUE" \
+            '{ ($provider): { type: "api-key", key: $key } }' > "$AUTH_PROFILES"
+        log "  Auth profile created for ${PROVIDER_NAME}"
+    else
+        log "  No API key found for ${PROVIDER_NAME} (env: ${API_KEY_ENV})"
+    fi
+fi
+
+# Validate generated config
+if ! jq empty "$OPENCLAW_CONFIG" 2>/dev/null; then
+    log_error "Generated openclaw.json is not valid JSON! Dumping:"
+    cat "$OPENCLAW_CONFIG" >&2
+    exit 1
+fi
+
+log "OpenClaw gateway config:"
+jq '.' "$OPENCLAW_CONFIG"
+
+# Save merged devteam config to workspace for agent reference
+cp "$CONFIG_FILE" "${WORKSPACE_DIR}/.agent-config.json" 2>/dev/null || true
+
+# -----------------------------------------------------------------------------
+# Background daemon: post-init workspace sync + device auto-approval
+# -----------------------------------------------------------------------------
+# 1. After gateway init, re-copy persona files to OpenClaw's workspace in case
+#    the gateway overwrote them with blank templates during its setup.
+# 2. Auto-approve pending device pairing requests so the router service, webchat
+#    UI, and other WebSocket clients work without manual `openclaw devices approve`.
+DEVICES_DIR="${CONFIG_DIR}/devices"
+mkdir -p "$DEVICES_DIR"
+(
+    sleep 10  # Give the gateway time to fully initialize
+
+    # Re-copy persona workspace files (overwrites any blank templates)
+    if [ -d "$PERSONA_DIR" ]; then
+        for fname in SOUL.md HEARTBEAT.md IDENTITY.md TOOLS.md; do
+            src=""
+            if [ -f "${PERSONA_DIR}/workspace/${fname}" ]; then
+                src="${PERSONA_DIR}/workspace/${fname}"
+            elif [ -f "${PERSONA_DIR}/${fname}" ]; then
+                src="${PERSONA_DIR}/${fname}"
+            fi
+            if [ -n "$src" ] && [ -d "${CONFIG_DIR}/workspace" ]; then
+                cp "$src" "${CONFIG_DIR}/workspace/${fname}"
+            fi
+        done
+        if [ -d "${PERSONA_DIR}/skills" ] && [ -d "${CONFIG_DIR}/workspace" ]; then
+            mkdir -p "${CONFIG_DIR}/workspace/skills"
+            cp -r "${PERSONA_DIR}/skills/"* "${CONFIG_DIR}/workspace/skills/" 2>/dev/null || true
+        fi
+        log "[post-init] Persona files synced to OpenClaw workspace"
+    fi
+
+    # Auto-approve loop
+    while true; do
+        if [ -f "${DEVICES_DIR}/pending.json" ]; then
+            pending_count=$(jq 'length' "${DEVICES_DIR}/pending.json" 2>/dev/null || echo "0")
+            if [ "$pending_count" != "0" ] && [ -n "$pending_count" ]; then
+                for did in $(jq -r 'keys[]' "${DEVICES_DIR}/pending.json" 2>/dev/null); do
+                    if [ -n "$did" ] && [ "$did" != "null" ]; then
+                        log "[auto-approve] Approving device ${did}"
+                        OPENCLAW_STATE_DIR="${CONFIG_DIR}" openclaw devices approve "$did" 2>/dev/null || true
+                    fi
+                done
+            fi
+        fi
+        sleep 5
+    done
+) &
+log "Started background daemon (post-init sync + device auto-approve, PID: $!)"
+
+# -----------------------------------------------------------------------------
+# Start OpenClaw Gateway
+# -----------------------------------------------------------------------------
+log "Starting OpenClaw gateway..."
 log "Agent: ${AGENT_NAME}"
 
-# If additional args are passed to the container, forward them to openclaw
+# Export env vars that OpenClaw reads directly
+export OPENCLAW_STATE_DIR="${CONFIG_DIR}"
+export OPENCLAW_CONFIG_PATH="${OPENCLAW_CONFIG}"
+export OPENCLAW_NO_ONBOARD=1
+
+# If additional args are passed to the container, forward them
 if [ $# -gt 0 ]; then
     log "Additional arguments: $*"
-    exec openclaw serve \
-        --config "$CONFIG_FILE" \
-        --port 18789 \
-        --headless \
+    exec openclaw gateway \
+        --port "$GW_PORT" \
+        --allow-unconfigured \
         "$@"
 else
-    exec openclaw serve \
-        --config "$CONFIG_FILE" \
-        --port 18789 \
-        --headless
+    exec openclaw gateway \
+        --port "$GW_PORT" \
+        --allow-unconfigured
 fi

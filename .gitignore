@@ -23,5 +23,9 @@ Thumbs.db
 *.swp
 *.swo
 
+# Generated artifacts (MCP output)
+generated/
+.env.generated
+
 # Docker
 *.log

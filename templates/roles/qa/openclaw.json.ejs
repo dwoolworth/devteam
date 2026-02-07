@@ -1,0 +1,27 @@
+{
+  "name": "<%= agent.id %>",
+  "display_name": "<%= agent.name %> (QA)",
+  "provider": {
+    "name": "<%= agent.provider.name %>",
+    "model": "<%= agent.provider.model %>",
+    "api_key_env": "<%= agent.provider.api_key_env %>"
+  },
+  "persona": {
+    "role": "quality_assurance",
+    "description": "Requirements are law. Pass or fail, no maybe. Reproduces, documents, reports with exact steps."
+  },
+  "heartbeat": {
+    "interval_minutes": <%= role.heartbeat_interval || 10 %>
+  },
+  "skills_dir": "/home/agent/persona/skills",
+  "integrations": {
+    "meeting_board": {
+      "url": "${MEETING_BOARD_URL:-http://meeting-board:8080}",
+      "token": "${MEETING_BOARD_TOKEN}"
+    },
+    "planning_board": {
+      "url": "${PLANNING_BOARD_URL:-http://project-board:3000}",
+      "token": "${PLANNING_BOARD_TOKEN}"
+    }
+  }
+}

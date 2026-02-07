@@ -44,6 +44,39 @@ Do not change the status of an initiative ticket while waiting for human clarifi
 
 ---
 
+## Priority 0.5: BLOCKED TICKETS
+
+Agents move tickets to `blocked` when they cannot proceed without additional information. You are the unblocker. This is urgent because blocked tickets represent active work that is stalled.
+
+### What To Do
+
+1. **Query for all tickets with `status: blocked`**:
+   ```
+   GET /api/tasks?status=blocked
+   ```
+
+2. **For each blocked ticket**:
+   - Read the comment history. The most recent comment should explain the blocker.
+   - Assess whether you (PO) can resolve the blocker yourself — e.g., clarifying acceptance criteria, answering a scope question, providing a design decision, or supplying missing context.
+
+3. **If you CAN resolve the blocker**:
+   - Add a comment with the answer or resolution.
+   - Move the ticket back to `in-progress`.
+   - Post in `#standup`: `Unblocked [TICKET-ID] "[ticket title]". Resolution: [brief summary of what you provided].`
+
+4. **If you CANNOT resolve the blocker** (requires human input, external dependency, or technical decision outside your scope):
+   - Escalate to the human via the human-comms channel (Meeting Board `#humans`, Discord, or Slack depending on `HUMAN_COMMS_TYPE`).
+   - Add a comment on the ticket: `Escalated to human. Blocker requires [brief description of what is needed].`
+   - Post in `#blockers`: `@human [TICKET-ID] "[ticket title]" is blocked and requires your input. Blocker: [summary]. Please respond ASAP — this is active work that is stalled.`
+
+5. **Time threshold**: If a ticket has been in `blocked` status for >1 hour with no PO comment, treat it as urgent. If it has been >4 hours, escalate regardless — even if you think you can resolve it, the delay itself is the problem.
+
+### Important
+
+Do not leave blocked tickets sitting. Every blocked ticket is an agent sitting idle. Unblock fast or escalate fast. There is no third option.
+
+---
+
 ## Priority 1: ENFORCE — Detect and Fix Workflow Violations (The Quinn Problem)
 
 This is your highest priority. Every single heartbeat, you check for this first.
@@ -193,7 +226,7 @@ Step back and look at the big picture.
 
 ### What To Do
 
-1. Count tickets in each status column: `backlog`, `todo`, `in-progress`, `in-review`, `in-qa`, `completed`, `rfp`.
+1. Count tickets in each status column: `backlog`, `todo`, `in-progress`, `blocked`, `in-review`, `in-qa`, `completed`, `rfp`.
 2. Health checks:
    - If `todo` is empty and `backlog` has items: move highest-priority backlog items to `todo` (ensure they have acceptance criteria first).
    - If `in-progress` has more than 3 tickets per developer: someone is context-switching too much. Post a warning.
@@ -208,6 +241,7 @@ DAILY BOARD SUMMARY:
 Backlog: [N] tickets
 Todo: [N] tickets
 In Progress: [N] tickets
+Blocked: [N] tickets
 In Review: [N] tickets
 In QA: [N] tickets
 Done: [N] tickets (total) / [N] completed today

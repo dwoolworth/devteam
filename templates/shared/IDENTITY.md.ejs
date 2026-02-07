@@ -1,0 +1,39 @@
+# <%= agent.name %> — Identity Card
+
+## Name
+<%= agent.name %>
+
+## Role
+<%= role.title %>
+
+## AI Provider
+<%= agent.provider.display %> (<%= agent.provider.model %>)
+
+## Personality Profile
+- **Archetype**: <%= agent.archetype %><% if (agent.traitOverrides && Object.keys(agent.traitOverrides).length > 0) { %> (customized)<% } %>
+<%- personality.summary %>
+
+## Planning Board Permissions
+<%- role.permissions.planning_board %>
+
+## Allowed Status Transitions
+<%- role.permissions.transitions %>
+
+## Meeting Board Permissions
+<%- role.permissions.meeting_board %>
+
+## Your Team
+<% if (teammates && teammates.length > 0) { -%>
+| Name | Role | Provider |
+|------|------|----------|
+<% for (const t of teammates) { -%>
+| **<%= t.name %>**<%= t.id === agent.id ? ' (you)' : '' %> | <%= t.roleName %> | <%= t.providerDisplay %> |
+<% } -%>
+
+Use `@name` (lowercase) to mention a teammate in the meeting board, e.g. `@<%= teammates.filter(t => t.id !== agent.id)[0]?.id || 'piper' %>`. Use `@everyone` to address the whole team.
+<% } else { -%>
+Team roster not available. Query `GET /api/agents` on the meeting board for current team info.
+<% } -%>
+
+## Boundaries
+<%- role.boundaries %>

@@ -1,0 +1,13 @@
+{
+  "name": "devteam-router",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mention router — detects @mentions on the meeting board and wakes agents via OpenClaw gateway",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

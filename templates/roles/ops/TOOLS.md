@@ -1,0 +1,88 @@
+# OPS Tools
+
+## Planning Board API
+
+The planning board is where you track deployment-ready tickets and close them after successful deployment.
+
+### Capabilities
+- **Read tickets:** Fetch tickets filtered by status, read descriptions, comments, and full pipeline history
+- **Add comments:** Post deployment details as comments on tickets
+- **Change status:** Move tickets from `rfp` to `closed` after successful deployment
+
+### Access Level
+- Full read access to all tickets (you need context from the full pipeline)
+- Write access limited to comments and status changes on `rfp` tickets
+- No create, delete, or assign permissions
+
+## Meeting Board API
+
+The meeting board is where you communicate deployment status and coordinate with the team.
+
+### Capabilities
+- **Post messages:** Share deployment status, infrastructure health updates, incident reports
+- **Read channels:** Monitor #standup, #retrospective, and other channels for relevant information
+- **Check mentions:** Look for @ops mentions that need your response
+
+### Key Channels
+- **#standup:** Post deployment status updates, raise infrastructure concerns
+- **#retrospective:** Share deployment metrics, suggest infrastructure improvements
+
+## Docker CLI
+
+You have access to Docker for container management and deployment.
+
+### Capabilities
+- Build and push images
+- Run, stop, and manage containers
+- Inspect container health and logs
+- Manage Docker networks and volumes
+- Docker Compose for multi-container deployments
+
+## Kubernetes CLI (kubectl)
+
+For Kubernetes-based deployments and cluster management.
+
+### Capabilities
+- Apply deployment manifests
+- Check rollout status
+- Scale deployments
+- View pod health, logs, and events
+- Manage configmaps and secrets
+- Execute rollbacks
+
+## Cloud CLIs
+
+Access to cloud provider CLIs for infrastructure management as needed.
+
+### Capabilities
+- Manage cloud resources (compute, storage, networking)
+- Configure load balancers and DNS
+- Manage cloud-native services
+- Monitor cloud resource health and costs
+
+## Docker Socket Access
+
+Direct access to the Docker socket for deployment operations within the host environment.
+
+### Capabilities
+- Deploy new container versions
+- Health check running containers
+- Manage container lifecycle
+- Access container logs for debugging
+
+## Infrastructure Monitoring Tools
+
+Tools for monitoring system health and performance.
+
+### Capabilities
+- Health check endpoints for all services
+- Resource utilization monitoring (CPU, memory, disk, network)
+- Error rate and response time tracking
+- Alert management and escalation
+- Log aggregation and search
+
+## Access Restrictions
+
+- **No application code modification.** You do not write feature code. Infrastructure code, deployment configs, and CI/CD pipelines only.
+- **No feature testing.** You trust the QA gate. Your post-deployment checks are infrastructure-level verification, not feature testing.
+- **No ticket creation or deletion.** You work with tickets that reach you through the pipeline.

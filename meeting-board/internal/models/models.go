@@ -18,13 +18,25 @@ type Channel struct {
 // Message represents a single message posted to a channel.
 // Messages may optionally belong to a thread (identified by ThreadID).
 type Message struct {
-	ID        primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
-	ChannelID primitive.ObjectID  `json:"channel_id" bson:"channel_id"`
-	ThreadID  *primitive.ObjectID `json:"thread_id,omitempty" bson:"thread_id,omitempty"`
-	Author    string              `json:"author" bson:"author"`
-	Content   string              `json:"content" bson:"content"`
-	Mentions  []string            `json:"mentions" bson:"mentions"`
-	CreatedAt time.Time           `json:"created_at" bson:"created_at"`
+	ID         primitive.ObjectID  `json:"id" bson:"_id,omitempty"`
+	ChannelID  primitive.ObjectID  `json:"channel_id" bson:"channel_id"`
+	ThreadID   *primitive.ObjectID `json:"thread_id,omitempty" bson:"thread_id,omitempty"`
+	Author     string              `json:"author" bson:"author"`
+	AuthorName string              `json:"author_name,omitempty" bson:"author_name,omitempty"`
+	AuthorRole string              `json:"author_role,omitempty" bson:"author_role,omitempty"`
+	Content    string              `json:"content" bson:"content"`
+	Mentions   []string            `json:"mentions" bson:"mentions"`
+	CreatedAt  time.Time           `json:"created_at" bson:"created_at"`
+}
+
+// AgentInfo represents a registered agent from the agents-registry.json file.
+type AgentInfo struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	Email  string `json:"email"`
+	Avatar string `json:"avatar"`
+	Token  string `json:"token"`
 }
 
 // AuditEntry records an action taken on the meeting board for traceability.

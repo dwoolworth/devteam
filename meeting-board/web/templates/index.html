@@ -148,12 +148,36 @@
         background: var(--bg-secondary);
     }
 
+    .main-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+
     .main-header h2 {
         font-size: 16px;
         font-weight: 600;
         display: flex;
         align-items: center;
         gap: 8px;
+    }
+
+    .clear-btn {
+        background: transparent;
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 6px 12px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .clear-btn:hover {
+        color: var(--badge-ops);
+        border-color: var(--badge-ops);
+        background: rgba(255,107,107,0.1);
     }
 
     .main-header h2 .hash {
@@ -338,6 +362,56 @@
     .author-label.qa  { background: rgba(105,219,124,0.2); color: var(--badge-qa); }
     .author-label.ops { background: rgba(255,107,107,0.2); color: var(--badge-ops); }
     .author-label.human { background: rgba(134,142,150,0.2); color: var(--badge-human); }
+
+    .agent-list {
+        padding: 4px 12px 8px;
+    }
+
+    .agent-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 5px 8px;
+        border-radius: 6px;
+        font-size: 13px;
+        color: var(--text-secondary);
+    }
+
+    .agent-avatar {
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        font-weight: 700;
+        color: #fff;
+        flex-shrink: 0;
+    }
+
+    .agent-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .agent-role-badge {
+        font-size: 9px;
+        padding: 1px 5px;
+        border-radius: 8px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.3px;
+    }
+
+    .agent-role-badge.po  { background: rgba(151,117,250,0.2); color: var(--badge-po); }
+    .agent-role-badge.dev { background: rgba(77,171,247,0.2); color: var(--badge-dev); }
+    .agent-role-badge.cq  { background: rgba(255,169,77,0.2); color: var(--badge-cq); }
+    .agent-role-badge.qa  { background: rgba(105,219,124,0.2); color: var(--badge-qa); }
+    .agent-role-badge.ops { background: rgba(255,107,107,0.2); color: var(--badge-ops); }
 </style>
 </head>
 <body>
@@ -350,14 +424,8 @@
         </div>
         <div class="channel-section-title">Channels</div>
         <div class="channel-list" id="channelList"></div>
-        <div class="author-labels">
-            <span class="author-label po">PO</span>
-            <span class="author-label dev">DEV</span>
-            <span class="author-label cq">CQ</span>
-            <span class="author-label qa">QA</span>
-            <span class="author-label ops">OPS</span>
-            <span class="author-label human">Human</span>
-        </div>
+        <div class="channel-section-title" id="agentsSectionTitle" style="display:none;">Team</div>
+        <div class="agent-list" id="agentList"></div>
         <div class="connection-status">
             <span class="status-dot" id="statusDot"></span>
             <span id="statusText">Disconnected</span>
@@ -367,8 +435,11 @@
     <!-- Main content -->
     <main class="main">
         <div class="main-header" id="mainHeader">
-            <h2><span class="hash">#</span> <span id="channelName">Select a channel</span></h2>
-            <div class="channel-desc" id="channelDesc"></div>
+            <div>
+                <h2><span class="hash">#</span> <span id="channelName">Select a channel</span></h2>
+                <div class="channel-desc" id="channelDesc"></div>
+            </div>
+            <button class="clear-btn" id="clearBtn" style="display:none" title="Clear all messages in this channel">Clear Channel</button>
         </div>
         <div class="messages-container" id="messagesContainer">
             <div class="empty-state" id="emptyState">
@@ -394,6 +465,7 @@
     let activeChannel = null;
     let wsConn = null;
     let subscribedChannelId = null;
+    let agentRegistry = []; // loaded from /api/agents
 
     // DOM elements
     const channelListEl = document.getElementById('channelList');
@@ -405,6 +477,7 @@
     const sendBtn = document.getElementById('sendBtn');
     const statusDot = document.getElementById('statusDot');
     const statusText = document.getElementById('statusText');
+    const clearBtn = document.getElementById('clearBtn');
 
     // -----------------------------------------------------------------------
     // API helpers
@@ -452,12 +525,31 @@
         channelDescEl.textContent = ch.description || '';
         inputEl.disabled = false;
         sendBtn.disabled = false;
+        clearBtn.style.display = '';
         inputEl.placeholder = 'Type a message in #' + ch.name + '...';
 
         renderChannels();
         await loadMessages();
         subscribeWs(ch.id);
     }
+
+    async function clearChannel() {
+        if (!activeChannel) return;
+        if (!confirm('Clear all messages in #' + activeChannel.name + '? This cannot be undone.')) return;
+
+        clearBtn.disabled = true;
+        try {
+            await apiFetch('/api/channels/' + activeChannel.id + '/messages', { method: 'DELETE' });
+            await loadMessages();
+        } catch (e) {
+            console.error('Failed to clear channel:', e);
+            alert('Failed to clear channel: ' + e.message);
+        } finally {
+            clearBtn.disabled = false;
+        }
+    }
+
+    clearBtn.addEventListener('click', clearChannel);
 
     // -----------------------------------------------------------------------
     // Messages
@@ -493,16 +585,25 @@
         var div = document.createElement('div');
         div.className = 'message';
 
-        var authorClass = msg.author || 'human';
-        var authorLabel = (msg.author || 'human').toUpperCase();
+        // Determine role for styling: use author_role if present, else fall back to author ID
+        var role = msg.author_role || msg.author || 'human';
+        var roleClass = role;
+        // Display name: prefer author_name, fall back to author, then "Human"
+        var displayName = msg.author_name || msg.author || 'Human';
+        // Avatar text: first 2 chars of display name
+        var avatarText = displayName.substring(0, 2).toUpperCase();
+        // Role badge: uppercase role
+        var roleBadge = role.toUpperCase();
+
         var timeStr = formatTime(msg.created_at);
         var contentHtml = highlightMentions(escapeHtml(msg.content));
 
         div.innerHTML =
-            '<div class="message-avatar ' + authorClass + '">' + authorLabel.substring(0, 3) + '</div>' +
+            '<div class="message-avatar ' + roleClass + '">' + avatarText + '</div>' +
             '<div class="message-body">' +
                 '<div class="message-header">' +
-                    '<span class="message-author ' + authorClass + '">' + authorLabel + '</span>' +
+                    '<span class="message-author ' + roleClass + '">' + escapeHtml(displayName) + '</span>' +
+                    (role !== displayName.toLowerCase() ? '<span class="agent-role-badge ' + roleClass + '">' + roleBadge + '</span>' : '') +
                     '<span class="message-time">' + timeStr + '</span>' +
                 '</div>' +
                 '<div class="message-content">' + contentHtml + '</div>' +
@@ -636,7 +737,14 @@
     }
 
     function highlightMentions(html) {
-        return html.replace(/@(po|dev|cq|qa|ops)\b/g, '<span class="mention">@$1</span>');
+        // Build dynamic mention pattern from agent registry + legacy role names
+        var names = ['po', 'dev', 'cq', 'qa', 'ops'];
+        agentRegistry.forEach(function(a) {
+            if (a.id && names.indexOf(a.id.toLowerCase()) === -1) names.push(a.id.toLowerCase());
+            if (a.name && names.indexOf(a.name.toLowerCase()) === -1) names.push(a.name.toLowerCase());
+        });
+        var pattern = new RegExp('@(' + names.join('|') + ')\\b', 'gi');
+        return html.replace(pattern, '<span class="mention">@$1</span>');
     }
 
     function formatTime(isoStr) {
@@ -660,8 +768,43 @@
     }
 
     // -----------------------------------------------------------------------
+    // Agent registry
+    // -----------------------------------------------------------------------
+    async function loadAgents() {
+        try {
+            agentRegistry = await apiFetch('/api/agents');
+            renderAgentList();
+        } catch (e) {
+            // No agent registry — use legacy mode
+            agentRegistry = [];
+        }
+    }
+
+    function renderAgentList() {
+        var listEl = document.getElementById('agentList');
+        var titleEl = document.getElementById('agentsSectionTitle');
+        listEl.innerHTML = '';
+        if (!agentRegistry || agentRegistry.length === 0) {
+            titleEl.style.display = 'none';
+            return;
+        }
+        titleEl.style.display = '';
+        agentRegistry.forEach(function(a) {
+            var div = document.createElement('div');
+            div.className = 'agent-item';
+            var roleClass = a.role || '';
+            div.innerHTML =
+                '<div class="agent-avatar ' + roleClass + '">' + (a.avatar || escapeHtml((a.name || '?').substring(0, 2).toUpperCase())) + '</div>' +
+                '<span class="agent-name">' + escapeHtml(a.name || a.id) + '</span>' +
+                '<span class="agent-role-badge ' + roleClass + '">' + (a.role || '').toUpperCase() + '</span>';
+            listEl.appendChild(div);
+        });
+    }
+
+    // -----------------------------------------------------------------------
     // Init
     // -----------------------------------------------------------------------
+    loadAgents();
     loadChannels();
     connectWs();
 })();

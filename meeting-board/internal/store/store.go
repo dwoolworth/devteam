@@ -174,6 +174,16 @@ func (s *Store) CreateMessage(ctx context.Context, msg *models.Message) error {
 	return nil
 }
 
+// DeleteChannelMessages removes all messages in a channel.
+// Returns the number of deleted messages.
+func (s *Store) DeleteChannelMessages(ctx context.Context, channelID primitive.ObjectID) (int64, error) {
+	result, err := s.messages.DeleteMany(ctx, bson.M{"channel_id": channelID})
+	if err != nil {
+		return 0, err
+	}
+	return result.DeletedCount, nil
+}
+
 // ListThreadMessages returns all messages in a given thread, ordered by created_at ascending.
 func (s *Store) ListThreadMessages(ctx context.Context, threadID primitive.ObjectID) ([]models.Message, error) {
 	// Include the root message and all replies.

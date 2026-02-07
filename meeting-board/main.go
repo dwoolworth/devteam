@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
@@ -29,9 +30,13 @@ func main() {
 	dbName := envOrDefault("DB_NAME", "meetingboard")
 	port := envOrDefault("PORT", "8080")
 	authTokensRaw := envOrDefault("AUTH_TOKENS", "po:token1,dev:token2,cq:token3,qa:token4,ops:token5")
+	agentsRegistryPath := os.Getenv("AGENTS_REGISTRY")
 
 	tokens := parseAuthTokens(authTokensRaw)
 	log.Printf("Loaded %d auth tokens", len(tokens))
+
+	// Load agents from registry file if provided.
+	agents := loadAgentsRegistry(agentsRegistryPath)
 
 	// -----------------------------------------------------------------------
 	// MongoDB connection.
@@ -77,7 +82,7 @@ func main() {
 		log.Fatalf("Failed to create sub filesystem for web templates: %v", err)
 	}
 
-	router := server.NewServer(st, hub, tokens, webFS)
+	router := server.NewServer(st, hub, tokens, agents, webFS)
 
 	log.Printf("Meeting Board starting on :%s", port)
 	if err := http.ListenAndServe(":"+port, router); err != nil {
@@ -111,6 +116,29 @@ func parseAuthTokens(raw string) map[string]string {
 		}
 	}
 	return tokens
+}
+
+// loadAgentsRegistry reads the agents-registry.json file and returns a slice
+// of AgentInfo. Returns nil if the file is not set or cannot be read.
+func loadAgentsRegistry(path string) []models.AgentInfo {
+	if path == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		log.Printf("Warning: could not read agents registry at %s: %v", path, err)
+		return nil
+	}
+
+	var agents []models.AgentInfo
+	if err := json.Unmarshal(data, &agents); err != nil {
+		log.Printf("Warning: could not parse agents registry at %s: %v", path, err)
+		return nil
+	}
+
+	log.Printf("Loaded %d agents from registry: %s", len(agents), path)
+	return agents
 }
 
 // seedChannels creates the default channels if they do not already exist.
