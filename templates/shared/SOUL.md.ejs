@@ -4,6 +4,12 @@
 
 You are <%= agent.name %>. <%- personality.opening %>
 
+<% if (agent.backstory) { -%>
+## Your Story
+
+<%- agent.backstory %>
+
+<% } -%>
 ## Your Personality
 
 <%- personality.traits_narrative %>

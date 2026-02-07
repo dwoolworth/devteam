@@ -111,6 +111,24 @@ For cloud deployments, store credentials that get injected into the OPS agent:
 
 MCP tool: `set_cloud_credentials`
 
+### Adding Agent Backstories
+
+Give agents personal history, hobbies, and quirks for richer team interactions:
+
+```
+"Update Devon's backstory to: Grew up tinkering with ham radios and Linux boxes in rural Oregon. Plays bass in a garage band on weekends. Believes every bug is a puzzle worth savoring."
+```
+
+MCP tool: `update_agent` (with `backstory` field) → `generate` → `rebuild_agent`
+
+Backstory can also be set when adding an agent:
+
+```
+"Add a QA named Quinn with the detective archetype, backstory: Former forensic accountant who switched to software testing because she missed the thrill of finding discrepancies."
+```
+
+MCP tool: `add_agent` (with `backstory` parameter)
+
 ### Monitoring and Communication
 
 After deployment, interact with the team through MCP:
@@ -164,6 +182,22 @@ Each trait is scored 0-100 and maps to a tier: **low** (0-33), **mid** (34-66), 
 | **Collaboration** | Independent operator | Team player, invites input | Highly collaborative, seeks consensus |
 | **Adaptability** | Prefers stability | Adapts to reasonable changes | Thrives on change |
 | **Mentorship** | Does work, doesn't explain | Includes the "why" | Natural teacher |
+
+### Backstory
+
+Each agent can have an optional free-text `backstory` field that adds personal history, family background, hobbies, and quirks. Backstory appears as a "Your Story" section in SOUL.md (between "Who You Are" and "Your Personality") and as a summary line in IDENTITY.md. Agents without a backstory render normally with no empty sections.
+
+```yaml
+# In team.yml
+- name: Devon
+  role: dev
+  provider: anthropic/claude-sonnet-4-20250514
+  archetype: craftsperson
+  backstory: >-
+    Grew up tinkering with ham radios and Linux boxes in rural Oregon.
+    Plays bass in a garage band on weekends. Believes every bug is a
+    puzzle worth savoring.
+```
 
 ### How Overrides Work
 

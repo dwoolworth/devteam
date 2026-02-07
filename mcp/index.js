@@ -157,10 +157,11 @@ server.tool(
     provider: z.string().describe('AI provider/model (e.g., "xai/grok-3", "anthropic/claude-sonnet-4-20250514")'),
     archetype: z.string().describe('Personality archetype ID'),
     traits: z.record(z.number()).optional().describe('Optional trait overrides (0-100), e.g. {"empathy": 75, "humor": 60}'),
+    backstory: z.string().optional().describe('Optional personal backstory — history, family, hobbies, quirks that add conversational texture'),
   },
-  async ({ name, role, provider, archetype, traits }) => {
+  async ({ name, role, provider, archetype, traits, backstory }) => {
     try {
-      const result = addAgent(PROJECT_ROOT, { name, role, provider, archetype, traits });
+      const result = addAgent(PROJECT_ROOT, { name, role, provider, archetype, traits, backstory });
       return { content: [{ type: 'text', text: `Added ${name} as ${role} (${archetype} archetype)\n${JSON.stringify(result, null, 2)}` }] };
     } catch (e) {
       return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
@@ -177,6 +178,7 @@ server.tool(
     provider: z.string().optional().describe('New AI provider/model'),
     archetype: z.string().optional().describe('New personality archetype'),
     traits: z.record(z.number()).optional().describe('Trait overrides to merge'),
+    backstory: z.string().optional().describe('Personal backstory — history, family, hobbies, quirks'),
   },
   async ({ name, ...updates }) => {
     try {

@@ -104,6 +104,7 @@ export function generate(projectRoot) {
       archetype: agentDef.archetype,
       traits: agentDef.traits || {},
       traitOverrides: agentDef.traits || {},
+      backstory: agentDef.backstory || '',
     };
 
     // Generate personality
@@ -628,6 +629,7 @@ export function previewPersonality(projectRoot, agentName) {
     archetype: agentDef.archetype,
     traits: agentDef.traits || {},
     traitOverrides: agentDef.traits || {},
+    backstory: agentDef.backstory || '',
   };
 
   const personality = generatePersonality(projectRoot, agent, roleConfig);

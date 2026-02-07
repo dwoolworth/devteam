@@ -12,6 +12,9 @@
 ## Personality Profile
 - **Archetype**: <%= agent.archetype %><% if (agent.traitOverrides && Object.keys(agent.traitOverrides).length > 0) { %> (customized)<% } %>
 <%- personality.summary %>
+<% if (agent.backstory) { -%>
+- **Backstory**: <%- agent.backstory.split('\n')[0] %>
+<% } -%>
 
 ## Planning Board Permissions
 <%- role.permissions.planning_board %>
