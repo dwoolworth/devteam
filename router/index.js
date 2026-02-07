@@ -17,6 +17,13 @@ const CHANNEL_REFRESH_MS   = 5 * 60 * 1000; // re-fetch channels every 5 minutes
 const RECONNECT_DELAY_MS   = 3000;
 const PROTOCOL_VERSION     = 3;
 
+// Observer configuration
+const OBSERVER_ENABLED       = process.env.OBSERVER_ENABLED !== 'false'; // default: on
+const OBSERVER_API_KEY       = process.env.ANTHROPIC_API_KEY || '';
+const OBSERVER_MODEL         = process.env.OBSERVER_MODEL || 'claude-haiku-4-5-20251001';
+const CONTEXT_MESSAGES_LIMIT = parseInt(process.env.CONTEXT_MESSAGES_LIMIT, 10) || 20;
+const CONTEXT_CACHE_TTL_MS   = 5000; // 5s cache to avoid redundant fetches
+
 // Load agent config from AGENTS_CONFIG JSON file or fall back to env vars
 const agentConfig = loadAgentConfig();
 
@@ -31,13 +38,18 @@ function loadAgentConfig() {
       if (Array.isArray(data)) {
         const config = {};
         for (const agent of data) {
-          config[agent.id] = { url: agent.url, token: agent.token };
+          config[agent.id] = { url: agent.url, token: agent.token, role: agent.role, name: agent.name };
         }
         log(`Agent config loaded from ${configPath}: ${Object.keys(config).join(', ')}`);
         return config;
       }
-      log(`Agent config loaded from ${configPath}: ${Object.keys(data).join(', ')}`);
-      return data;
+      // Object format — preserve role/name if present
+      const config = {};
+      for (const [id, entry] of Object.entries(data)) {
+        config[id] = { ...entry, role: entry.role || id, name: entry.name || id };
+      }
+      log(`Agent config loaded from ${configPath}: ${Object.keys(config).join(', ')}`);
+      return config;
     } catch (e) {
       log(`Warning: could not load agent config from ${configPath}: ${e.message}`);
     }
@@ -51,7 +63,7 @@ function loadAgentConfig() {
     const url   = process.env[`${upper}_GATEWAY_URL`];
     const token = process.env[`${upper}_GATEWAY_TOKEN`];
     if (url && token) {
-      config[name] = { url, token };
+      config[name] = { url, token, role: name, name: name.toUpperCase() };
     }
   }
   log(`Agent config loaded from env vars: ${Object.keys(config).join(', ') || '(none)'}`);
@@ -88,6 +100,166 @@ function httpGetJson(url) {
     }).on('error', reject);
   });
 }
+
+// ---------------------------------------------------------------------------
+// Conversation context — fetch recent messages for contextual wakes
+// ---------------------------------------------------------------------------
+
+const contextCache = new Map(); // channelName → { messages, timestamp }
+
+async function fetchRecentMessages(channelName, limit = CONTEXT_MESSAGES_LIMIT) {
+  // Check cache first
+  const cached = contextCache.get(channelName);
+  if (cached && Date.now() - cached.timestamp < CONTEXT_CACHE_TTL_MS) {
+    return cached.messages;
+  }
+
+  try {
+    const url = `${MEETING_BOARD_URL}/api/messages?channel=${encodeURIComponent(channelName)}&limit=${limit}`;
+    const messages = await httpGetJson(url);
+    const result = Array.isArray(messages) ? messages : [];
+    contextCache.set(channelName, { messages: result, timestamp: Date.now() });
+    return result;
+  } catch (e) {
+    log(`Failed to fetch recent messages for #${channelName}: ${e.message}`);
+    return [];
+  }
+}
+
+function formatConversationContext(messages, channelName) {
+  if (!messages.length) return '';
+
+  // Messages from API are newest-first; reverse for chronological order
+  const chronological = [...messages].reverse();
+  const lines = chronological.map(m => {
+    const name = m.author_name || m.author || 'unknown';
+    const role = m.author_role ? ` (${m.author_role.toUpperCase()})` : '';
+    return `  [${name}${role}] ${m.content}`;
+  });
+
+  return `\n\nRecent conversation in #${channelName}:\n${lines.join('\n')}`;
+}
+
+// ---------------------------------------------------------------------------
+// Observer — LLM-powered relevance evaluation (Haiku)
+// ---------------------------------------------------------------------------
+
+const https = require('https');
+
+/**
+ * Call Anthropic Messages API to evaluate which agents (if any) should be
+ * woken for a conversation. Returns an array of agent IDs.
+ */
+async function evaluateRelevance(conversationContext, candidateAgents, channelName) {
+  if (!OBSERVER_API_KEY) return [];
+
+  const agentList = candidateAgents
+    .map(a => `- ${a.id} "${a.name}" (${a.role.toUpperCase()}): ${ROLE_DESCRIPTIONS[a.role] || a.role}`)
+    .join('\n');
+
+  const prompt = `You are a conversation observer for a team chat (like Slack). Your job is to decide which team members, if any, should be notified about this conversation so they can chime in.
+
+Team members available to notify:
+${agentList}
+
+Current conversation in #${channelName}:
+${conversationContext}
+
+Decide which team members (if any) should be pulled into this conversation. Consider:
+1. Is the topic genuinely relevant to their role, and would their expertise add value?
+2. Have they already participated and said what they need to say?
+3. Is the conversation going in circles or has it become unproductive? If so, don't add more voices.
+4. Would notifying them lead to a useful contribution, or just noise?
+5. Lean toward NOT notifying — only wake someone if their input would be clearly valuable.
+
+Respond with ONLY a JSON object: {"wake": ["agentId1", "agentId2"], "reason": "brief explanation"}
+If no one should be notified: {"wake": [], "reason": "brief explanation"}`;
+
+  try {
+    const body = JSON.stringify({
+      model: OBSERVER_MODEL,
+      max_tokens: 150,
+      messages: [{ role: 'user', content: prompt }],
+    });
+
+    const result = await new Promise((resolve, reject) => {
+      const req = https.request({
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': OBSERVER_API_KEY,
+          'anthropic-version': '2023-06-01',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      }, (res) => {
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try {
+            resolve(JSON.parse(data));
+          } catch (e) {
+            reject(new Error(`Failed to parse Anthropic response: ${e.message}`));
+          }
+        });
+      });
+      req.on('error', reject);
+      req.setTimeout(10000, () => { req.destroy(); reject(new Error('Anthropic API timeout')); });
+      req.write(body);
+      req.end();
+    });
+
+    // Extract text from response
+    const text = result.content?.[0]?.text || '';
+    // Parse JSON from response (may be wrapped in markdown code fences)
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      log(`Observer: could not parse Haiku response: ${text.slice(0, 200)}`);
+      return [];
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const wake = Array.isArray(parsed.wake) ? parsed.wake : [];
+    const reason = parsed.reason || '';
+
+    if (wake.length > 0) {
+      log(`Observer: Haiku recommends waking [${wake.join(', ')}] — ${reason}`);
+    } else {
+      log(`Observer: Haiku says no one needed — ${reason}`);
+    }
+
+    return wake;
+  } catch (e) {
+    log(`Observer: Haiku evaluation failed: ${e.message}`);
+    return [];
+  }
+}
+
+const ROLE_DESCRIPTIONS = {
+  po: 'Product Owner — requirements, stories, priorities, roadmap, stakeholder needs',
+  dev: 'Developer — code, architecture, implementation, debugging, APIs, databases',
+  cq: 'Code Quality — reviews, standards, security, tech debt, best practices',
+  qa: 'QA/Testing — test plans, bug verification, regression, e2e, coverage',
+  ops: 'Operations — deployment, infrastructure, monitoring, CI/CD, scaling',
+};
+
+// Quick pre-filter: does this message have ANY topical relevance worth evaluating?
+const ALL_KEYWORDS = [
+  'requirement', 'story', 'epic', 'feature', 'priority', 'backlog', 'sprint', 'roadmap',
+  'code', 'bug', 'error', 'implement', 'api', 'database', 'refactor', 'architecture',
+  'quality', 'lint', 'review', 'security', 'vulnerability', 'tech debt',
+  'test', 'testing', 'regression', 'e2e', 'coverage', 'defect',
+  'deploy', 'infrastructure', 'docker', 'kubernetes', 'monitoring', 'production',
+  'deadline', 'milestone', 'blocker', 'risk', 'performance', 'migration',
+];
+
+function hasAnyRelevance(content) {
+  const lower = content.toLowerCase();
+  return ALL_KEYWORDS.some(kw => lower.includes(kw));
+}
+
+log(`Observer: ${OBSERVER_ENABLED ? 'enabled' : 'disabled'} (model=${OBSERVER_MODEL}, api_key=${OBSERVER_API_KEY ? 'set' : 'MISSING'})`);
 
 // ---------------------------------------------------------------------------
 // Device identity — ED25519 keypair for OpenClaw gateway auth
@@ -232,12 +404,261 @@ function shouldWake(agent) {
 }
 
 // ---------------------------------------------------------------------------
-// Wake an agent via its OpenClaw gateway WebSocket
+// Persistent agent connections — always-on WebSocket to each agent gateway
 // ---------------------------------------------------------------------------
 
+const KEEPALIVE_INTERVAL_MS = 30000; // ping every 30s to keep connection alive
+const agentConns = new Map(); // agentId → connection state
+
+function buildConnectParams(agentId, nonce) {
+  const role = 'operator';
+  const scopes = ['operator.admin'];
+  const signedAtMs = Date.now();
+  const clientId = 'gateway-client';
+  const clientMode = 'backend';
+  const authToken = getAuthToken(agentId);
+
+  const payload = buildDeviceAuthPayload({
+    deviceId: deviceIdentity.deviceId,
+    clientId,
+    clientMode,
+    role,
+    scopes,
+    signedAtMs,
+    token: authToken || null,
+    nonce,
+  });
+  const signature = signPayload(deviceIdentity.privateKeyPem, payload);
+
+  return {
+    minProtocol: PROTOCOL_VERSION,
+    maxProtocol: PROTOCOL_VERSION,
+    client: {
+      id: clientId,
+      version: '1.0.0',
+      platform: 'linux',
+      mode: clientMode,
+      instanceId: uuid(),
+    },
+    caps: [],
+    auth: { token: authToken },
+    role,
+    scopes,
+    device: {
+      id: deviceIdentity.deviceId,
+      publicKey: base64UrlEncode(derivePublicKeyRaw(deviceIdentity.publicKeyPem)),
+      signature,
+      signedAt: signedAtMs,
+      ...(nonce ? { nonce } : {}),
+    },
+  };
+}
+
+/**
+ * Establish and maintain a persistent authenticated WebSocket connection
+ * to an agent's OpenClaw gateway. Automatically reconnects on disconnect.
+ */
+function connectToAgent(agentId) {
+  const cfg = agentConfig[agentId];
+  if (!cfg) return;
+
+  // Get or create connection state
+  let conn = agentConns.get(agentId);
+  if (!conn) {
+    conn = {
+      agentId,
+      ws: null,
+      authenticated: false,
+      connecting: false,
+      pending: new Map(),       // reqId → { resolve, timer }
+      reconnectTimer: null,
+      reconnectDelay: 1000,     // exponential backoff, starts 1s
+      keepaliveTimer: null,
+      wakeQueue: null,          // latest wake text queued while disconnected
+      retryCount: 0,            // suppress noisy logs on repeated retries
+    };
+    agentConns.set(agentId, conn);
+  }
+
+  // Don't double-connect
+  if (conn.connecting || conn.authenticated) return;
+
+  conn.connecting = true;
+  conn.authenticated = false;
+  if (conn.reconnectTimer) { clearTimeout(conn.reconnectTimer); conn.reconnectTimer = null; }
+
+  if (conn.retryCount === 0) {
+    log(`  Connecting to "${agentId}" at ${cfg.url}`);
+  } else if (conn.retryCount === 5) {
+    log(`  Still trying to reach "${agentId}" (retries silenced until connected)`);
+  }
+
+  const ws = new WebSocket(cfg.url);
+  conn.ws = ws;
+  let connectSent = false;
+  let challengeNonce = null;
+
+  function sendReq(method, params) {
+    const id = uuid();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        if (conn.pending.has(id)) {
+          conn.pending.delete(id);
+          resolve({ error: { message: 'Request timeout' } });
+        }
+      }, 15000);
+      conn.pending.set(id, { resolve, timer });
+      try {
+        ws.send(JSON.stringify({ type: 'req', id, method, params }));
+      } catch (e) {
+        clearTimeout(timer);
+        conn.pending.delete(id);
+        resolve({ error: { message: e.message } });
+      }
+    });
+  }
+
+  // Store sendReq on conn so wakeAgent() can use it
+  conn.sendReq = sendReq;
+
+  async function doConnect(nonce) {
+    if (connectSent) return;
+    connectSent = true;
+
+    try {
+      const params = buildConnectParams(agentId, nonce || challengeNonce);
+      const res = await sendReq('connect', params);
+
+      if (res.error) {
+        // NOT_PAIRED — wait for auto-approve daemon, then retry
+        if (res.error.code === 'NOT_PAIRED') {
+          log(`  Pairing requested for "${agentId}", waiting for auto-approve...`);
+          ws.close();
+          await new Promise(r => setTimeout(r, 2000));
+          conn.connecting = false;
+          connectToAgent(agentId);
+          return;
+        }
+        // Stale device token — clear and retry with gateway token
+        const errMsg = res.error.message || '';
+        if (errMsg.includes('token mismatch') && deviceTokens.has(agentId)) {
+          log(`  Stale device token for "${agentId}", clearing and retrying...`);
+          deviceTokens.delete(agentId);
+          saveDeviceTokens();
+          ws.close();
+          await new Promise(r => setTimeout(r, 1000));
+          conn.connecting = false;
+          connectToAgent(agentId);
+          return;
+        }
+        log(`  Connect error for "${agentId}": ${JSON.stringify(res.error)}`);
+        ws.close();
+        return;
+      }
+
+      // Success — store device token, mark connected
+      const deviceToken = res.payload?.auth?.deviceToken;
+      if (deviceToken) storeDeviceToken(agentId, deviceToken);
+
+      conn.authenticated = true;
+      conn.connecting = false;
+      conn.reconnectDelay = 1000; // reset backoff
+      conn.retryCount = 0;
+      log(`  Connected to "${agentId}" (persistent)`);
+
+      // Start keepalive pings
+      if (conn.keepaliveTimer) clearInterval(conn.keepaliveTimer);
+      conn.keepaliveTimer = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) ws.ping();
+      }, KEEPALIVE_INTERVAL_MS);
+
+      // Flush any wake that arrived while we were connecting
+      if (conn.wakeQueue) {
+        const text = conn.wakeQueue;
+        conn.wakeQueue = null;
+        log(`  Flushing queued wake for "${agentId}"`);
+        const wakeRes = await sendReq('wake', { mode: 'now', text });
+        if (wakeRes.error) {
+          log(`  Wake error for "${agentId}": ${JSON.stringify(wakeRes.error)}`);
+        } else {
+          log(`  Wake acknowledged by "${agentId}"`);
+        }
+      }
+    } catch (e) {
+      log(`  Connection failed for "${agentId}": ${e.message}`);
+      ws.close();
+    }
+  }
+
+  ws.on('open', () => {
+    // Wait up to 750ms for a challenge; if none arrives, connect anyway
+    setTimeout(() => {
+      if (!connectSent && ws.readyState === WebSocket.OPEN) doConnect(null);
+    }, 750);
+  });
+
+  ws.on('message', async (raw) => {
+    let msg;
+    try { msg = JSON.parse(raw.toString()); } catch { return; }
+
+    // Handle response to a pending request
+    if (msg.type === 'res' && msg.id && conn.pending.has(msg.id)) {
+      const p = conn.pending.get(msg.id);
+      clearTimeout(p.timer);
+      p.resolve(msg);
+      conn.pending.delete(msg.id);
+      return;
+    }
+
+    // Handle connect challenge
+    if (msg.type === 'event' && msg.event === 'connect.challenge') {
+      challengeNonce = msg.payload?.nonce || null;
+      if (!connectSent) await doConnect(challengeNonce);
+    }
+  });
+
+  ws.on('close', () => {
+    const wasAuthenticated = conn.authenticated;
+    conn.authenticated = false;
+    conn.connecting = false;
+    conn.ws = null;
+    conn.sendReq = null;
+    if (conn.keepaliveTimer) { clearInterval(conn.keepaliveTimer); conn.keepaliveTimer = null; }
+
+    // Clear any pending requests
+    for (const [, p] of conn.pending) {
+      clearTimeout(p.timer);
+      p.resolve({ error: { message: 'Connection closed' } });
+    }
+    conn.pending.clear();
+
+    // Auto-reconnect with exponential backoff
+    const delay = conn.reconnectDelay;
+    conn.reconnectDelay = Math.min(conn.reconnectDelay * 2, 30000);
+    if (wasAuthenticated) {
+      log(`  Connection to "${agentId}" lost, reconnecting in ${delay / 1000}s`);
+    }
+    conn.retryCount++;
+    conn.reconnectTimer = setTimeout(() => {
+      conn.connecting = false;
+      connectToAgent(agentId);
+    }, delay);
+  });
+
+  ws.on('error', (err) => {
+    if (conn.retryCount < 2) {
+      log(`  WebSocket error for "${agentId}": ${err.message}`);
+    }
+    // 'close' event will fire after this, triggering reconnect
+  });
+}
+
+/**
+ * Wake an agent using its persistent connection. If not yet connected,
+ * queue the wake to be sent as soon as the connection is established.
+ */
 function wakeAgent(agent, text) {
-  const cfg = agentConfig[agent];
-  if (!cfg) {
+  if (!agentConfig[agent]) {
     log(`  No gateway config for "${agent}", skipping wake`);
     return;
   }
@@ -247,199 +668,40 @@ function wakeAgent(agent, text) {
     return;
   }
 
-  log(`  Waking "${agent}" via ${cfg.url}`);
+  const conn = agentConns.get(agent);
 
-  const ws = new WebSocket(cfg.url);
-  let settled = false;
-  let connectSent = false;
-  let challengeNonce = null;
-  const pending = new Map(); // id → { resolve }
-
-  const timeout = setTimeout(() => {
-    if (!settled) {
-      settled = true;
-      log(`  Wake timeout for "${agent}"`);
-      ws.close();
-    }
-  }, 15000);
-
-  function sendReq(method, params) {
-    const id = uuid();
-    return new Promise((resolve) => {
-      pending.set(id, { resolve });
-      ws.send(JSON.stringify({ type: 'req', id, method, params }));
-    });
-  }
-
-  function buildConnectParams(nonce) {
-    const role = 'operator';
-    const scopes = ['operator.admin'];
-    const signedAtMs = Date.now();
-    const clientId = 'gateway-client';
-    const clientMode = 'backend';
-    const authToken = getAuthToken(agent);
-
-    // Build signed device auth payload
-    const payload = buildDeviceAuthPayload({
-      deviceId: deviceIdentity.deviceId,
-      clientId,
-      clientMode,
-      role,
-      scopes,
-      signedAtMs,
-      token: authToken || null,
-      nonce
-    });
-    const signature = signPayload(deviceIdentity.privateKeyPem, payload);
-
-    return {
-      minProtocol: PROTOCOL_VERSION,
-      maxProtocol: PROTOCOL_VERSION,
-      client: {
-        id: clientId,
-        version: '1.0.0',
-        platform: 'linux',
-        mode: clientMode,
-        instanceId: uuid()
-      },
-      caps: [],
-      auth: { token: authToken },
-      role,
-      scopes,
-      device: {
-        id: deviceIdentity.deviceId,
-        publicKey: base64UrlEncode(derivePublicKeyRaw(deviceIdentity.publicKeyPem)),
-        signature,
-        signedAt: signedAtMs,
-        ...(nonce ? { nonce } : {})
-      }
-    };
-  }
-
-  // Queue connect after 750ms (matches OpenClaw client behavior) unless a
-  // challenge arrives first.
-  ws.on('open', () => {
-    setTimeout(() => {
-      if (!settled && !connectSent) {
-        doConnect(null);
-      }
-    }, 750);
-  });
-
-  ws.on('message', async (raw) => {
-    let msg;
-    try {
-      msg = JSON.parse(raw.toString());
-    } catch {
-      return;
-    }
-
-    // Handle response to a pending request
-    if (msg.type === 'res' && msg.id && pending.has(msg.id)) {
-      pending.get(msg.id).resolve(msg);
-      pending.delete(msg.id);
-      return;
-    }
-
-    // Handle connect challenge event (type is "event", not "ev")
-    if (msg.type === 'event' && msg.event === 'connect.challenge') {
-      const nonce = msg.payload?.nonce || null;
-      challengeNonce = nonce;
-      if (!connectSent) {
-        await doConnect(nonce);
-      }
-      return;
-    }
-  });
-
-  async function doConnect(nonce, retryCount = 0) {
-    if (connectSent && retryCount === 0) return;
-    connectSent = true;
-
-    try {
-      const params = buildConnectParams(nonce || challengeNonce);
-      const connectRes = await sendReq('connect', params);
-
-      if (connectRes.error) {
-        // If NOT_PAIRED, wait for auto-approve daemon then retry once
-        if (connectRes.error.code === 'NOT_PAIRED' && retryCount < 2) {
-          log(`  Pairing requested for "${agent}", waiting for auto-approve...`);
-          connectSent = false;
-          challengeNonce = null;
-          ws.close();
-          await new Promise(r => setTimeout(r, 2000));
-          if (!settled) {
-            settled = true;
-            clearTimeout(timeout);
-            lastWake.delete(agent);
-            wakeAgent(agent, text);
-          }
-          return;
-        }
-        // If token mismatch and we were using a stored device token, clear it and retry
-        // with the original gateway token
-        const errMsg = connectRes.error.message || '';
-        if (errMsg.includes('token mismatch') && deviceTokens.has(agent) && retryCount < 2) {
-          log(`  Stale device token for "${agent}", clearing and retrying with gateway token...`);
-          deviceTokens.delete(agent);
-          saveDeviceTokens();
-          connectSent = false;
-          challengeNonce = null;
-          ws.close();
-          await new Promise(r => setTimeout(r, 1000));
-          if (!settled) {
-            settled = true;
-            clearTimeout(timeout);
-            lastWake.delete(agent);
-            wakeAgent(agent, text);
-          }
-          return;
-        }
-        log(`  Connect error for "${agent}": ${JSON.stringify(connectRes.error)}`);
-        cleanup();
-        return;
-      }
-
-      // Extract and store device token if provided
-      const deviceToken = connectRes.payload?.auth?.deviceToken;
-      if (deviceToken) {
-        storeDeviceToken(agent, deviceToken);
-      }
-
-      log(`  Connected to "${agent}" gateway`);
-
-      // Send wake
-      const wakeRes = await sendReq('wake', { mode: 'now', text });
-
-      if (wakeRes.error) {
-        log(`  Wake error for "${agent}": ${JSON.stringify(wakeRes.error)}`);
+  // If connected, send wake immediately
+  if (conn && conn.authenticated && conn.sendReq) {
+    log(`  Waking "${agent}" (persistent connection)`);
+    conn.sendReq('wake', { mode: 'now', text }).then(res => {
+      if (res.error) {
+        log(`  Wake error for "${agent}": ${JSON.stringify(res.error)}`);
       } else {
         log(`  Wake acknowledged by "${agent}"`);
       }
-
-      cleanup();
-    } catch (e) {
-      log(`  Wake failed for "${agent}": ${e.message}`);
-      cleanup();
-    }
+    });
+    return;
   }
 
-  function cleanup() {
-    if (!settled) {
-      settled = true;
-      clearTimeout(timeout);
-      ws.close();
-    }
+  // Not connected — queue wake and ensure connection is being established
+  log(`  Queuing wake for "${agent}" (connecting...)`);
+  if (conn) {
+    conn.wakeQueue = text;
+  } else {
+    connectToAgent(agent);
+    const newConn = agentConns.get(agent);
+    if (newConn) newConn.wakeQueue = text;
   }
+}
 
-  ws.on('error', (err) => {
-    log(`  WebSocket error for "${agent}": ${err.message}`);
-    cleanup();
-  });
-
-  ws.on('close', () => {
-    clearTimeout(timeout);
-  });
+/**
+ * Establish persistent connections to all configured agent gateways.
+ */
+function connectAllAgents() {
+  log('Establishing persistent connections to all agent gateways...');
+  for (const agentId of Object.keys(agentConfig)) {
+    connectToAgent(agentId);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -479,7 +741,7 @@ async function refreshChannels() {
   subscribeToChannels(mbWs, channels);
 }
 
-function handleBroadcast(raw) {
+async function handleBroadcast(raw) {
   let msg;
   try {
     msg = JSON.parse(raw.toString());
@@ -487,38 +749,81 @@ function handleBroadcast(raw) {
     return;
   }
 
-  // Only process messages that have mentions
   const mentions = msg.mentions;
-  if (!Array.isArray(mentions) || mentions.length === 0) return;
-
+  const hasMentions = Array.isArray(mentions) && mentions.length > 0;
   const author = msg.author || '';
   const content = msg.content || '';
   const channelId = msg.channel_id || '';
+  const channelName = channelIdToName[channelId] || channelId;
 
-  // Expand @everyone to all configured agents
-  const expandedMentions = new Set();
-  for (const mentioned of mentions) {
-    if (mentioned === 'everyone') {
-      for (const agentName of Object.keys(agentConfig)) {
-        expandedMentions.add(agentName);
+  // Track which agents are woken by @mention so observer skips them
+  const mentionWoken = new Set();
+
+  // ----- Phase 1: @mention wake with conversation context -----
+  if (hasMentions) {
+    // Expand @everyone to all configured agents
+    const expandedMentions = new Set();
+    for (const mentioned of mentions) {
+      if (mentioned === 'everyone') {
+        for (const agentName of Object.keys(agentConfig)) {
+          expandedMentions.add(agentName);
+        }
+      } else {
+        expandedMentions.add(mentioned);
       }
-    } else {
-      expandedMentions.add(mentioned);
+    }
+
+    // Fetch conversation context once for all mentions in this channel
+    const recentMessages = channelName ? await fetchRecentMessages(channelName) : [];
+    const contextStr = formatConversationContext(recentMessages, channelName);
+
+    for (const mentioned of expandedMentions) {
+      if (mentioned === author) continue;
+      if (!agentConfig[mentioned]) continue;
+
+      mentionWoken.add(mentioned);
+      log(`Detected @mention for "${mentioned}" by "${author}" in #${channelName}`);
+
+      const wakeText = `@${mentioned} mentioned by ${author} in #${channelName}: "${content.slice(0, 300)}"${contextStr}`;
+      wakeAgent(mentioned, wakeText);
     }
   }
 
-  for (const mentioned of expandedMentions) {
-    // Don't wake an agent that mentioned itself
-    if (mentioned === author) continue;
+  // ----- Phase 2: Observer — LLM-powered relevance evaluation -----
+  if (!OBSERVER_ENABLED) return;
+  if (!content || !channelName) return;
+  if (!OBSERVER_API_KEY) return;
 
-    // Only wake configured agents
-    if (!agentConfig[mentioned]) continue;
+  // Quick pre-filter: skip messages with zero topical keywords (saves API calls)
+  if (!hasAnyRelevance(content)) return;
 
-    const channelName = channelIdToName[channelId] || channelId;
-    log(`Detected @mention for "${mentioned}" by "${author}" in #${channelName}`);
+  // Build list of candidate agents (not already @mentioned, not the author)
+  const candidates = [];
+  for (const [agentName, cfg] of Object.entries(agentConfig)) {
+    if (mentionWoken.has(agentName)) continue;
+    if (agentName === author) continue;
+    // Respect wake debounce — but don't consume it yet (just check)
+    const lastWakeTime = lastWake.get(agentName) || 0;
+    if (Date.now() - lastWakeTime < WAKE_DEBOUNCE_MS) continue;
+    candidates.push({ id: agentName, name: cfg.name || agentName, role: cfg.role || agentName });
+  }
+  if (candidates.length === 0) return;
 
-    const context = `@${mentioned} mentioned by ${author} in #${channelName}: "${content.slice(0, 300)}"`;
-    wakeAgent(mentioned, context);
+  // Fetch conversation context for Haiku to evaluate
+  const recentMessages = await fetchRecentMessages(channelName);
+  const contextStr = formatConversationContext(recentMessages, channelName);
+  if (!contextStr) return;
+
+  // Ask Haiku which agents should be woken
+  const agentsToWake = await evaluateRelevance(contextStr, candidates, channelName);
+
+  for (const agentId of agentsToWake) {
+    if (!agentConfig[agentId]) continue;
+    if (mentionWoken.has(agentId)) continue;
+    if (!shouldWake(agentId)) continue;
+
+    const wakeText = `You're observing #${channelName} and noticed a conversation relevant to your role. If you have something valuable to contribute, post to the channel. If not, do nothing — no response is needed.${contextStr}`;
+    wakeAgent(agentId, wakeText);
   }
 }
 
@@ -541,7 +846,7 @@ function connectToMeetingBoard() {
   });
 
   mbWs.on('message', (data) => {
-    handleBroadcast(data);
+    handleBroadcast(data).catch(e => log(`Broadcast handler error: ${e.message}`));
   });
 
   mbWs.on('close', () => {
@@ -557,128 +862,10 @@ function connectToMeetingBoard() {
 }
 
 // ---------------------------------------------------------------------------
-// Pre-pair with all agent gateways at startup
-// ---------------------------------------------------------------------------
-
-async function prePairWithAgent(agent, cfg) {
-  return new Promise((resolve) => {
-    const ws = new WebSocket(cfg.url);
-    let done = false;
-    let connectSent = false;
-    let challengeNonce = null;
-    const pending = new Map();
-
-    const timer = setTimeout(() => {
-      if (!done) { done = true; ws.close(); resolve(false); }
-    }, 10000);
-
-    function sendReq(method, params) {
-      const id = uuid();
-      return new Promise((res) => {
-        pending.set(id, { resolve: res });
-        ws.send(JSON.stringify({ type: 'req', id, method, params }));
-      });
-    }
-
-    function buildParams(nonce) {
-      const role = 'operator';
-      const scopes = ['operator.admin'];
-      const signedAtMs = Date.now();
-      const clientId = 'gateway-client';
-      const clientMode = 'backend';
-      const authToken = getAuthToken(agent);
-      const payload = buildDeviceAuthPayload({
-        deviceId: deviceIdentity.deviceId, clientId, clientMode, role, scopes,
-        signedAtMs, token: authToken || null, nonce
-      });
-      const signature = signPayload(deviceIdentity.privateKeyPem, payload);
-      return {
-        minProtocol: PROTOCOL_VERSION, maxProtocol: PROTOCOL_VERSION,
-        client: { id: clientId, version: '1.0.0', platform: 'linux', mode: clientMode, instanceId: uuid() },
-        caps: [], auth: { token: authToken }, role, scopes,
-        device: {
-          id: deviceIdentity.deviceId,
-          publicKey: base64UrlEncode(derivePublicKeyRaw(deviceIdentity.publicKeyPem)),
-          signature, signedAt: signedAtMs,
-          ...(nonce ? { nonce } : {})
-        }
-      };
-    }
-
-    async function doConnect(nonce) {
-      if (connectSent) return;
-      connectSent = true;
-      try {
-        const res = await sendReq('connect', buildParams(nonce || challengeNonce));
-        if (res.error) {
-          if (res.error.code === 'NOT_PAIRED') {
-            log(`  Pre-pair: pairing requested for "${agent}", waiting for auto-approve...`);
-            // Close, wait, then retry once
-            ws.close();
-            await new Promise(r => setTimeout(r, 2000));
-            done = true; clearTimeout(timer);
-            resolve(await prePairWithAgent(agent, cfg));
-            return;
-          }
-          // If token mismatch with stored device token, clear it and retry with gateway token
-          const errMsg = res.error.message || '';
-          if (errMsg.includes('token mismatch') && deviceTokens.has(agent)) {
-            log(`  Pre-pair: stale device token for "${agent}", clearing and retrying...`);
-            deviceTokens.delete(agent);
-            saveDeviceTokens();
-            done = true; clearTimeout(timer); ws.close();
-            resolve(await prePairWithAgent(agent, cfg));
-            return;
-          }
-          log(`  Pre-pair: connect error for "${agent}": ${errMsg || JSON.stringify(res.error)}`);
-        } else {
-          // Extract and store device token if provided
-          const deviceToken = res.payload?.auth?.deviceToken;
-          if (deviceToken) {
-            storeDeviceToken(agent, deviceToken);
-          }
-          log(`  Pre-pair: "${agent}" paired successfully`);
-        }
-      } catch (e) {
-        log(`  Pre-pair: failed for "${agent}": ${e.message}`);
-      }
-      done = true; clearTimeout(timer); ws.close(); resolve(true);
-    }
-
-    ws.on('open', () => {
-      setTimeout(() => { if (!done && !connectSent) doConnect(null); }, 750);
-    });
-
-    ws.on('message', async (raw) => {
-      let msg;
-      try { msg = JSON.parse(raw.toString()); } catch { return; }
-      if (msg.type === 'res' && msg.id && pending.has(msg.id)) {
-        pending.get(msg.id).resolve(msg); pending.delete(msg.id); return;
-      }
-      if (msg.type === 'event' && msg.event === 'connect.challenge') {
-        challengeNonce = msg.payload?.nonce || null;
-        if (!connectSent) await doConnect(challengeNonce);
-      }
-    });
-
-    ws.on('error', () => { if (!done) { done = true; clearTimeout(timer); resolve(false); } });
-    ws.on('close', () => { clearTimeout(timer); });
-  });
-}
-
-async function prePairAllAgents() {
-  log('Pre-pairing with all agent gateways...');
-  for (const [agent, cfg] of Object.entries(agentConfig)) {
-    await prePairWithAgent(agent, cfg);
-  }
-  log('Pre-pairing complete');
-}
-
-// ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
 
 log('DevTeam Mention Router starting');
 connectToMeetingBoard();
-// Pre-pair in the background after startup
-setTimeout(() => prePairAllAgents(), 2000);
+// Establish persistent connections to all agent gateways after a short delay
+setTimeout(() => connectAllAgents(), 2000);

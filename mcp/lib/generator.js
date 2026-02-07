@@ -390,6 +390,10 @@ function generateDockerCompose(projectRoot, team, registry, tokens) {
       'MEETING_BOARD_WS_URL=ws://meeting-board:8080/ws',
       'AGENTS_CONFIG=/app/agents.json',
       'WAKE_DEBOUNCE_MS=30000',
+      'OBSERVER_ENABLED=true',
+      'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}',
+      'OBSERVER_MODEL=claude-haiku-4-5-20251001',
+      'CONTEXT_MESSAGES_LIMIT=20',
       'HOME=/home/router',
     ],
     volumes: [
