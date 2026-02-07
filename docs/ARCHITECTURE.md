@@ -10,7 +10,10 @@ Detailed technical architecture of the DevTeam platform -- a containerized auton
 - [The Cardinal Rule](#the-cardinal-rule)
 - [Meeting Board](#meeting-board)
 - [Personas](#personas)
+- [Personality System](#personality-system)
 - [Ticket Lifecycle (THE LAW)](#ticket-lifecycle-the-law)
+- [Template and Generation Pipeline](#template-and-generation-pipeline)
+- [MCP Server](#mcp-server)
 - [Base Image and 3-Layer Override Pattern](#base-image-and-3-layer-override-pattern)
 - [Docker Compose Topology](#docker-compose-topology)
 - [Kubernetes Deployment](#kubernetes-deployment)
@@ -170,37 +173,40 @@ Every significant action (message posts, channel creation) generates an `AuditEn
 
 Each persona is an AI agent running in its own Docker container. All personas share the same base image (`devteam/base`) and are differentiated by their configuration files, which define their role, AI provider, heartbeat interval, and behavioral directives.
 
-### Persona Summary
+Persona names, AI providers, and personality traits are **not hardcoded** -- they are defined in `team.yml` and generated from templates. The five roles below are fixed, but each team can assign different names, providers, archetypes, and personality tuning to each role. A team can also include multiple agents for the same role (e.g., two DEVs with different specializations).
 
-| Persona | Role | AI Provider | Model | Heartbeat | Key Responsibility |
-|---|---|---|---|---|---|
-| **PO** | Project Owner | x.ai | grok-3 | 15 min | Owns vision, assigns work, enforces ticket lifecycle, runs meetings |
-| **DEV** | Developer | Anthropic | claude-sonnet-4-20250514 | 10 min | Writes code, tests in Docker, submits PRs, iterates on feedback |
-| **CQ** | Code Quality | Anthropic | claude-sonnet-4-20250514 | 10 min | Reviews code, enforces security and quality standards, gates merges |
-| **QA** | Quality Assurance | Anthropic | claude-sonnet-4-20250514 | 10 min | Tests against acceptance criteria, pass/fail with reproductions |
-| **OPS** | DevOps | OpenAI | gpt-4o | 15 min | Deploys to production, manages infrastructure, monitors systems |
+### Roles
+
+| Role | Soul Title | Default Heartbeat | Key Responsibility |
+|---|---|---|---|
+| **PO** | The Boss / The Enforcer | 15 min | Owns vision, assigns work, enforces ticket lifecycle, runs meetings |
+| **DEV** | The Builder | 10 min | Writes code, tests in Docker, submits PRs, iterates on feedback |
+| **CQ** | The Gatekeeper | 10 min | Reviews code, enforces security and quality standards, gates merges |
+| **QA** | The Validator | 10 min | Tests against acceptance criteria, pass/fail with reproductions |
+| **OPS** | The Deployer | 15 min | Deploys to production, manages infrastructure, monitors systems |
 
 ### Persona Configuration Files
 
-Each persona directory under `images/` contains:
+Persona files are generated from templates (see [Template and Generation Pipeline](#template-and-generation-pipeline)) and placed in `generated/<agent-name>/persona/`. The static role templates live in `templates/roles/<role>/`, and shared templates in `templates/shared/`:
 
 ```
-images/<persona>/
-  Dockerfile           # FROM devteam/base:latest + COPY persona files
-  openclaw.json        # AI provider config, heartbeat interval, role description
+generated/<agent-name>/persona/
+  openclaw.json        # AI provider config, heartbeat interval, role description (from .ejs template)
   workspace/
-    SOUL.md            # Core identity, values, personality, and philosophy
-    HEARTBEAT.md       # Prioritized operational loop executed every N minutes
-    IDENTITY.md        # Name, role declaration, team context
-    TOOLS.md           # Available tools and how to use them
+    SOUL.md            # Generated from templates/shared/SOUL.md.ejs + personality system
+    HEARTBEAT.md       # Copied from templates/roles/<role>/HEARTBEAT.md
+    IDENTITY.md        # Generated from templates/shared/IDENTITY.md.ejs + team roster
+    TOOLS.md           # Copied from templates/roles/<role>/TOOLS.md
   skills/
     meeting-board/
-      SKILL.md         # How to interact with the Meeting Board API
+      SKILL.md         # Copied from templates/skills/<role>/meeting-board/
     planning-board/
-      SKILL.md         # How to interact with the Planning Board API
+      SKILL.md         # Copied from templates/skills/<role>/planning-board/
     <role-specific>/
       SKILL.md         # Role-specific skills (git-workflow, code-review, test-runner, deploy)
 ```
+
+For manual/legacy setups, hardcoded persona files still exist under `images/<role>/` and work unchanged with the 3-Layer Override Pattern.
 
 ### Persona Roles and Boundaries
 
@@ -242,6 +248,101 @@ images/<persona>/
 - Infrastructure as code -- if it is not in code, it does not exist
 - On successful deploy: moves ticket from `rfp` to `closed`
 - Does NOT review code or test features
+
+---
+
+## Personality System
+
+Each agent's personality is built from two layers: an **archetype** (a preset personality template) and optional **trait overrides** (fine-tuning individual characteristics). The system resolves these into narrative text that is injected into the agent's SOUL.md and IDENTITY.md files.
+
+### Archetypes
+
+An archetype is a named personality preset that provides baseline values (0-100) for all 14 traits. Each archetype is designed for specific roles, though any archetype can be assigned to any role.
+
+| Archetype | Description | Best For |
+|---|---|---|
+| **Commander** | Decisive leader. High standards, clear directives, no-nonsense enforcement. | PO |
+| **Diplomat** | Consensus builder. Balances competing interests. Empathetic but effective. | PO |
+| **Craftsperson** | Quality-obsessed builder. Clean code, thorough testing, professional pride. | DEV, CQ |
+| **Maverick** | Creative problem-solver. Unconventional approaches. Fast and bold. | DEV |
+| **Sentinel** | Vigilant guardian. Security-first mindset. Nothing gets past unexamined. | CQ |
+| **Hustler** | Speed demon. Ships fast, iterates faster. Bias for action over perfection. | DEV, OPS |
+| **Mentor** | Patient teacher. Explains everything. Builds up the team through feedback. | CQ, QA |
+| **Detective** | Relentless investigator. Finds bugs others miss. Methodical and persistent. | QA |
+| **Operator** | Calm under pressure. Reliability-focused. Infrastructure as art. | OPS |
+| **Wildcard** | Unpredictable and creative. High energy, strong opinions, memorable personality. | DEV, QA |
+
+Archetype definitions live in `templates/archetypes.yml`.
+
+### Traits
+
+Each trait is scored 0-100 and falls into one of three tiers: low (0-33), mid (34-66), or high (67-100). The tier determines which narrative description is used in the agent's personality text.
+
+| Trait | Description | Low | Mid | High |
+|---|---|---|---|---|
+| **Assertiveness** | How forcefully the agent pushes their perspective | Deferential, goes along with consensus | Confident but flexible, yields to better reasoning | Forceful and direct, holds ground firmly |
+| **Empathy** | How much the agent considers others' perspectives | Task-focused, delivers feedback bluntly | Balanced, delivers hard truths with framing | Deeply considerate, acknowledges effort before critique |
+| **Thoroughness** | Depth and completeness of work | Focuses on critical path, skips unlikely edge cases | Covers important and most edge cases | Exhaustive, checks every boundary condition |
+| **Risk Tolerance** | Willingness to try new approaches | Conservative, sticks to proven patterns | Pragmatic, insists on rollback plans | Adventurous, comfortable shipping MVPs |
+| **Humor** | Personality and levity in communication | All business, dry and factual | Professional with occasional wit | Genuinely funny, uses humor to build rapport |
+| **Discipline** | How strictly the agent follows process | Flexible, will bend rules for speed | Uses judgment about when strictness matters | Process is law, no exceptions |
+| **Initiative** | How proactively the agent acts beyond assigned work | Stays in lane, waits for instructions | Proactive within domain, suggests improvements | Highly proactive, anticipates needs |
+| **Communication Style** | How verbose vs concise | Terse, bullet points over paragraphs | Clear and structured, enough context | Detailed and narrative, explains reasoning |
+| **Confidence** | How certain the agent appears in decisions | Hedges frequently, asks for validation | Appropriately confident, acknowledges uncertainty | Very self-assured, rarely second-guesses |
+| **Patience** | Tolerance for repeated issues and rework | Gets frustrated quickly, escalates early | Patient with first-time issues, expects improvement | Extremely patient, treats issues as teaching moments |
+| **Perfectionism** | Standards for what constitutes "done" | Pragmatic, ships when core works | Has standards, won't block on cosmetic issues | Nothing ships unless excellent |
+| **Collaboration** | Seeks input vs works independently | Independent operator, shares results not process | Team player, invites input on key decisions | Highly collaborative, seeks consensus |
+| **Adaptability** | How well the agent handles requirement changes | Prefers stability, resists mid-stream changes | Adapts to reasonable changes, pushes back on churn | Thrives on change, pivots easily |
+| **Mentorship** | How much the agent teaches vs just does the work | Does the work, doesn't explain unless asked | Explains reasoning, includes the "why" | Natural teacher, every interaction is a learning opportunity |
+
+Trait definitions live in `templates/traits.yml`.
+
+### How Personality Resolves
+
+1. The user selects an archetype for an agent (e.g., `commander` for PO).
+2. The archetype provides baseline values for all 14 traits.
+3. The user optionally overrides specific traits (e.g., `empathy: 70` to make a commander more empathetic).
+4. Overrides are clamped to 0-100 and merged on top of the archetype baseline.
+5. Each trait value maps to a tier (low/mid/high), which selects a narrative description.
+6. The top 3 dominant traits form the opening personality statement.
+7. All of this is rendered into `SOUL.md` and `IDENTITY.md` via EJS templates.
+
+### team.yml Structure
+
+The `team.yml` file at the project root defines the entire team configuration:
+
+```yaml
+project:
+  name: "my-project"
+  description: "Project description"
+  repo: "https://github.com/..."
+  stack:
+    language: go              # Primary language
+    framework: gin            # Backend framework
+    frontend: react           # Frontend framework
+    database: postgres        # Database
+    testing: playwright       # Testing framework
+  platform:
+    target: docker-compose    # or kubernetes
+    provider: local           # local, digitalocean, aws, gcp, azure
+  credentials: {}             # Cloud CLI credentials (injected into OPS)
+team:
+  base_port: 18790            # Host port for first agent (increments per agent)
+  agents:
+    - name: Piper             # Unique display name
+      role: po                # po, dev, cq, qa, ops
+      provider: xai/grok-3    # vendor/model format
+      archetype: commander    # Personality archetype ID
+      traits:                 # Optional overrides (0-100)
+        empathy: 70
+        humor: 65
+    - name: Devon
+      role: dev
+      provider: anthropic/claude-sonnet-4-20250514
+      archetype: craftsperson
+```
+
+This file is created and modified by the MCP tools (`setup_project`, `set_stack`, `set_platform`, `add_agent`, `update_agent`, `remove_agent`) and consumed by the `generate` tool to produce all deployment artifacts.
 
 ### Status Transitions by Persona
 
@@ -314,6 +415,194 @@ PO checks for the Quinn Problem on every heartbeat (Priority 1). The detection a
 - Failure always sends the ticket back to `in-progress` (never skipping pipeline stages).
 - Comment AND status change, always, every time, no exceptions.
 - PO enforces all of this every 15 minutes.
+
+---
+
+## Template and Generation Pipeline
+
+The `generate` tool transforms `team.yml` + templates into a complete set of deployment artifacts. This is the bridge between the design phase (MCP tools) and the deploy phase (Docker Compose or Kubernetes).
+
+### Template Directory Structure
+
+```
+templates/
+  archetypes.yml               # 10 personality archetypes with trait baselines
+  traits.yml                   # 14 trait definitions with low/mid/high descriptions
+  shared/
+    IDENTITY.md.ejs            # Agent identity card (name, role, team roster, permissions)
+    SOUL.md.ejs                # Agent personality narrative (archetype + traits + role values)
+  roles/
+    po/
+      HEARTBEAT.md             # PO operational loop (static, copied to each PO agent)
+      TOOLS.md                 # PO available tools (static)
+      openclaw.json.ejs        # PO agent runtime config (rendered with provider/model)
+      role.yml                 # PO role metadata (title, soul_title, permissions, boundaries)
+    dev/                       # Same structure for DEV
+    cq/                        # Same structure for CQ
+    qa/                        # Same structure for QA
+    ops/                       # Same structure for OPS
+  skills/
+    po/
+      human-comms/SKILL.md     # Human communication skill
+      meeting-board/SKILL.md   # Meeting Board interaction skill
+      planning-board/SKILL.md  # Planning Board interaction skill
+    dev/
+      git-workflow/SKILL.md    # Git branching and PR skill
+      meeting-board/SKILL.md
+      planning-board/SKILL.md
+    cq/
+      code-review/SKILL.md    # Code review and security audit skill
+      meeting-board/SKILL.md
+      planning-board/SKILL.md
+    qa/
+      test-runner/SKILL.md     # Test execution and evidence skill
+      meeting-board/SKILL.md
+      planning-board/SKILL.md
+    ops/
+      deploy/SKILL.md          # Deployment and rollback skill
+      meeting-board/SKILL.md
+      planning-board/SKILL.md
+```
+
+### What `generate` Produces
+
+Running the `generate` MCP tool creates the `generated/` directory with:
+
+```
+generated/
+  agents-registry.json               # Array of all agents with tokens, traits, endpoints
+  router-agents.json                 # WebSocket routing config for the router service
+  .env.generated                     # Auto-generated env file (tokens + API keys from .env)
+  docker-compose.generated.yml       # Complete Compose file (or k8s/ directory)
+  <agent-name>/persona/
+    openclaw.json                    # Rendered agent runtime config
+    workspace/
+      IDENTITY.md                    # Rendered identity (includes team roster)
+      SOUL.md                        # Rendered personality narrative
+      HEARTBEAT.md                   # Copied from role template (env vars resolved)
+      TOOLS.md                       # Copied from role template (env vars resolved)
+    skills/                          # Copied from templates/skills/<role>/ (env vars resolved)
+```
+
+### Key Design Decisions
+
+**Token generation:** Each `generate` run creates fresh random tokens (32 bytes hex) for every agent. These are written to `.env.generated` and embedded in the Docker Compose/K8s manifests. The Meeting Board uses the `agents-registry.json` file for token validation instead of the `AUTH_TOKENS` environment variable.
+
+**Environment variable resolution:** Template skill files and workspace docs may contain `${MEETING_BOARD_URL}` or `${PLANNING_BOARD_URL}` placeholders. The generator resolves these to their actual values (`http://meeting-board:8080`, `http://project-board:3000`) at generation time so agents don't depend on shell variable expansion. Token placeholders are kept as `${VAR}` references since they are secrets.
+
+**Skill copying:** Skills are copied from `templates/skills/<role>/` to each agent's persona directory. Markdown files are processed for environment variable resolution during the copy. This means all agents with the same role share the same skill definitions.
+
+**Docker Compose generation:** The generated Compose file includes MongoDB, Meeting Board, Project Board, Router, and one service per agent. Agent services mount their persona directory from `generated/<agent-name>/persona/`. DEV agents get read-write project mounts, CQ agents get read-only project mounts, OPS agents get Docker socket access, QA agents get evidence directory mounts.
+
+---
+
+## MCP Server
+
+The MCP (Model Context Protocol) server provides a conversational interface for designing, generating, and deploying AI dev teams through Claude Code or any MCP-compatible client.
+
+### Architecture
+
+```
+mcp/
+  index.js                # MCP server entry point (stdio transport)
+  package.json            # Dependencies: @modelcontextprotocol/sdk, zod, ejs, js-yaml
+  lib/
+    team.js               # team.yml CRUD (load, save, add/update/remove agents)
+    traits.js             # Archetype/trait loading, personality generation, trait resolution
+    generator.js          # Full artifact generation (personas, compose, k8s, env, registry)
+    deployer.js           # Docker Compose / K8s deployment, teardown, agent rebuild
+    monitor.js            # Team status, agent logs, restart, message posting, channel reading
+```
+
+The server communicates via **stdio** (stdin/stdout JSON-RPC), which Claude Code connects to as configured in `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "devteam": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["<project-root>/mcp/index.js"]
+    }
+  }
+}
+```
+
+### MCP Tools
+
+23 tools organized into 5 categories:
+
+#### Project Setup (5 tools)
+
+| Tool | Description |
+|---|---|
+| `setup_project` | Initialize or update project config -- name, description, repo URL |
+| `set_stack` | Set tech stack: language, framework, frontend, database, testing |
+| `set_platform` | Set deployment platform: docker-compose or kubernetes, cloud provider, registry |
+| `set_cloud_credentials` | Store cloud CLI credentials (DOCTL_TOKEN, AWS keys, etc.) for OPS agent |
+| `get_project` | Show current project configuration |
+
+#### Team Design (9 tools)
+
+| Tool | Description |
+|---|---|
+| `list_roles` | Show available agent roles (po, dev, cq, qa, ops) with descriptions and tools |
+| `list_archetypes` | Show personality archetypes with trait summaries |
+| `list_traits` | Show the 14 personality traits with low/mid/high descriptions |
+| `get_archetype` | Get full trait values for a named archetype |
+| `add_agent` | Add an agent with name, role, provider, archetype, and optional trait overrides |
+| `update_agent` | Modify an existing agent's configuration by name |
+| `remove_agent` | Remove an agent from the team by name |
+| `get_team` | Show the current team roster with all agents |
+| `preview_personality` | Preview the generated IDENTITY.md and SOUL.md for an agent before full generation |
+
+#### Generate and Deploy (4 tools)
+
+| Tool | Description |
+|---|---|
+| `generate` | Generate all artifacts: agent personas, registry, compose/k8s manifests, .env, router config |
+| `deploy` | Deploy the team to Docker Compose or Kubernetes |
+| `teardown` | Stop and remove the deployment (docker compose down or kubectl delete) |
+| `rebuild_agent` | Rebuild and restart a single agent container (after personality change) |
+
+#### Monitor and Manage (5 tools)
+
+| Tool | Description |
+|---|---|
+| `team_status` | Show all agents with online/offline status, uptime, and configuration |
+| `agent_logs` | Get recent logs for a specific agent by name |
+| `restart_agent` | Restart a specific agent container |
+| `post_message` | Post a message to a meeting board channel (as "human") |
+| `read_channel` | Read recent messages from a meeting board channel |
+
+### MCP Resources
+
+The server exposes 4 read-only resources for MCP clients to inspect team state:
+
+| Resource URI | Content |
+|---|---|
+| `devteam://team` | Current `team.yml` contents |
+| `devteam://registry` | Generated `agents-registry.json` (agent metadata, tokens, traits) |
+| `devteam://traits` | Trait definitions from `templates/traits.yml` |
+| `devteam://archetypes` | Archetype definitions from `templates/archetypes.yml` |
+
+### Lifecycle Flow
+
+```
+Design                    Generate                Deploy                 Monitor
+───────────────────────   ─────────────────────   ────────────────────   ─────────────────
+setup_project             generate                deploy                 team_status
+set_stack                   │                       │                    agent_logs
+set_platform                ├─ agents-registry      ├─ docker compose    restart_agent
+add_agent (×N)              ├─ router-agents         │  up -d             post_message
+update_agent                ├─ .env.generated        │  (or kubectl       read_channel
+preview_personality         ├─ docker-compose.yml    │   apply)
+remove_agent                └─ <agent>/persona/      │
+get_team                                           teardown
+                                                   rebuild_agent
+```
+
+The typical flow is: **Design** your team interactively through conversation, **Generate** all artifacts from `team.yml`, **Deploy** to Docker Compose or Kubernetes, then **Monitor** through logs and the Meeting Board. To change a personality, use `update_agent` + `generate` + `rebuild_agent`.
 
 ---
 

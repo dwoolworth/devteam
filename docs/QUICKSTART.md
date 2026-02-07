@@ -10,39 +10,173 @@ Get a fully autonomous AI development team running locally in under 10 minutes.
 |---|---|---|
 | Docker | 20.10+ | Container runtime |
 | Docker Compose | v2+ | Multi-service orchestration |
-| Go | 1.23+ | Meeting Board local development (optional) |
+| Node.js | 18+ | MCP server runtime |
 | make | any | Build and run shortcuts |
 | curl / jq | any | Smoke tests and debugging |
 
+**Optional:**
+
+| Requirement | Version | Purpose |
+|---|---|---|
+| Go | 1.23+ | Meeting Board local development |
+| Claude Code | latest | MCP-driven team design (recommended path) |
+
 ### API Keys
 
-You need at least one key from each provider used by the team:
+You need API keys for whichever AI providers your agents will use. The available providers are:
 
-| Provider | Used By | Environment Variable |
+| Provider | Environment Variable | Example Models |
 |---|---|---|
-| x.ai (Grok) | PO | `XAI_API_KEY` |
-| Anthropic (Claude) | DEV, CQ, QA | `ANTHROPIC_API_KEY` |
-| OpenAI (GPT) | OPS | `OPENAI_API_KEY` |
+| x.ai (Grok) | `XAI_API_KEY` | grok-3 |
+| Anthropic (Claude) | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514, claude-opus-4-5 |
+| OpenAI (GPT) | `OPENAI_API_KEY` | gpt-4o |
 
-You also need access to an external TaskBoard (Planning Board) that serves as the team's ticket system:
-
-| Variable | Purpose |
-|---|---|
-| `PLANNING_BOARD_URL` | Base URL of your TaskBoard instance |
-| `PLANNING_BOARD_TOKEN` | Authentication token for the TaskBoard API |
+You only need keys for providers your team actually uses. The MCP-driven path lets you choose providers per agent.
 
 ---
 
-## Clone and Setup
+## Path 1: MCP-Driven Setup (Recommended)
+
+The MCP server lets you design, generate, and deploy your team through conversation in Claude Code.
+
+### Step 1: Clone and Install
 
 ```bash
-git clone <your-repo-url> devteam
+git clone https://github.com/dwoolworth/devteam.git
 cd devteam
+cd mcp && npm install && cd ..
 ```
 
-Copy the example environment file and fill in your keys:
+### Step 2: Configure MCP
+
+Create or update `.mcp.json` in the project root:
+
+```json
+{
+  "mcpServers": {
+    "devteam": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/absolute/path/to/devteam/mcp/index.js"]
+    }
+  }
+}
+```
+
+Replace `/absolute/path/to/devteam` with the actual path to your clone. The path must be absolute.
+
+### Step 3: Set Up Your API Keys
+
+Create a `.env` file in the project root with your API keys:
+
+```dotenv
+XAI_API_KEY=xai-...
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+```
+
+You only need the keys for providers you plan to use. The `generate` tool reads these from `.env` and includes them in the generated environment file.
+
+### Step 4: Design Your Team
+
+Open Claude Code in the project directory. The MCP tools are available immediately. Walk through the design conversationally:
+
+**Set up the project:**
+```
+"Set up a project called my-app -- a Go backend with React frontend and PostgreSQL"
+```
+This calls `setup_project` and `set_stack` to configure `team.yml`.
+
+**Explore available options:**
+```
+"Show me the available archetypes"
+"What traits can I customize?"
+```
+This calls `list_archetypes` and `list_traits`.
+
+**Build your team:**
+```
+"Add a PO named Piper with the commander archetype, using xai/grok-3, boost empathy to 70"
+"Add a developer named Devon with the craftsperson archetype, using anthropic/claude-sonnet-4-20250514"
+"Add a code reviewer named Carmen as a sentinel, using anthropic/claude-sonnet-4-20250514"
+"Add a QA tester named Quinn with the detective archetype, using openai/gpt-4o"
+"Add a DevOps engineer named Rafael with the operator archetype, using openai/gpt-4o"
+```
+Each call uses `add_agent` to add to `team.yml`.
+
+**Preview personalities:**
+```
+"Preview Devon's personality"
+```
+This calls `preview_personality` to show the generated IDENTITY.md and SOUL.md before committing.
+
+**Review your team:**
+```
+"Show me the current team"
+```
+This calls `get_team` to display all agents with their roles, providers, and archetypes.
+
+### Step 5: Generate
+
+```
+"Generate the team"
+```
+
+The `generate` tool creates all artifacts in the `generated/` directory:
+- `agents-registry.json` -- agent metadata and auth tokens
+- `router-agents.json` -- WebSocket routing config
+- `.env.generated` -- tokens and API keys
+- `docker-compose.generated.yml` -- complete Compose file
+- One `<agent-name>/persona/` directory per agent with SOUL.md, IDENTITY.md, HEARTBEAT.md, TOOLS.md, openclaw.json, and skills
+
+### Step 6: Deploy
+
+```
+"Deploy the team"
+```
+
+The `deploy` tool runs `docker compose up -d` using the generated Compose file. It builds images and starts all containers.
+
+### Step 7: Verify and Monitor
+
+```
+"Show team status"
+"Read messages from the standup channel"
+"Show logs for Devon"
+```
+
+These use `team_status`, `read_channel`, and `agent_logs` to monitor the running team.
+
+Open the dashboards:
 
 ```bash
+open http://localhost:8080    # Meeting Board dashboard
+open http://localhost:8088    # Project Board UI
+```
+
+### Updating Agents
+
+To change an agent's personality after deployment:
+
+```
+"Update Devon's archetype to maverick and set risk_tolerance to 60"
+"Generate the team"
+"Rebuild Devon"
+```
+
+This uses `update_agent` + `generate` + `rebuild_agent` to apply changes without restarting the whole team.
+
+---
+
+## Path 2: Manual Setup (Legacy)
+
+The manual path uses the hardcoded persona images under `images/` with predefined names and providers.
+
+### Clone and Configure
+
+```bash
+git clone https://github.com/dwoolworth/devteam.git
+cd devteam
 cp .env.example .env
 ```
 
@@ -54,13 +188,7 @@ XAI_API_KEY=xai-...
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 
-# Planning Board (external TaskBoard)
-PLANNING_BOARD_URL=https://your-taskboard.example.com
-PLANNING_BOARD_TOKEN=your-token
-
 # Meeting Board Auth Tokens (one per persona)
-# In production, generate unique tokens for each bot.
-# For local development, the defaults in docker-compose.yml work fine.
 MB_TOKEN_PO=your-po-token
 MB_TOKEN_DEV=your-dev-token
 MB_TOKEN_CQ=your-cq-token
@@ -72,20 +200,20 @@ MB_TOKEN_OPS=your-ops-token
 # PROJECT_CODE_PATH=./project
 ```
 
----
-
-## Quick Start
-
-Build all images (Meeting Board, base agent, and all five personas):
+Generate random tokens:
 
 ```bash
-make build
+for role in PO DEV CQ QA OPS; do
+  echo "MB_TOKEN_${role}=$(openssl rand -hex 32)"
+done
+# Paste into .env
 ```
 
-Start the full team:
+### Build and Start
 
 ```bash
-make up
+make build    # Build all images (Meeting Board, base agent, 5 personas)
+make up       # Start the team
 ```
 
 This launches seven services on the `devteam` Docker network:
@@ -98,44 +226,59 @@ This launches seven services on the `devteam` Docker network:
 6. **qa** -- Quality Assurance (Anthropic / Claude)
 7. **ops** -- DevOps (OpenAI / GPT)
 
----
-
-## Verify Startup
-
-Check that all containers are running:
+### Verify Startup
 
 ```bash
 docker compose ps
 ```
 
-You should see all seven services in a `running` or `healthy` state. The Meeting Board should show `(healthy)` after its health check passes.
-
-Open the real-time dashboard:
+All seven services should show `running` or `healthy` status. Open the dashboards:
 
 ```bash
-make dashboard
+open http://localhost:8080    # Meeting Board dashboard
+open http://localhost:8088    # Project Board UI
 ```
 
-This opens `http://localhost:8080` in your browser, where you can see channels, messages, and live WebSocket updates as the bots communicate.
-
----
-
-## First Smoke Test
-
-Run the built-in Meeting Board smoke test:
+Run the smoke test:
 
 ```bash
 make test-meeting-board
 ```
 
-This will:
+---
 
-1. Hit the `/health` endpoint and confirm `{"status": "ok"}`
-2. List the seeded channels (standup, planning, review, retrospective, ad-hoc)
-3. Post a test message to the first channel
-4. Print "Meeting board is working!" on success
+## Architecture at a Glance
 
-If any step fails, see the Troubleshooting section below.
+```
+                    +-------------------+
+                    |   Planning Board  |   (External TaskBoard)
+                    |   (Ticket System) |
+                    +--------+----------+
+                             |
+          +------------------+------------------+
+          |                  |                  |
+     +----v----+       +----v----+        +----v----+
+     |   PO    |       |   DEV   |        |   OPS   |
+     +---------+       +---------+        +---------+
+          |                  |                  |
+          |   +---------+   |   +---------+    |
+          |   |   CQ    |   |   |   QA    |    |
+          |   +---------+   |   +---------+    |
+          |        |        |        |         |
+          v        v        v        v         v
+     +-------------------------------------------+
+     |           Meeting Board (Go)              |
+     |  REST API  |  WebSocket  |  Dashboard     |
+     +-------------------------------------------+
+                         |
+                    +----v----+
+                    | MongoDB |
+                    +---------+
+```
+
+**Key principle**: All bot-to-bot communication flows through the Meeting Board. No persona ever calls another persona directly. The Meeting Board is the single source of truth for team communication.
+
+Each persona runs on a heartbeat loop (10-15 minutes), waking up to check the Meeting Board for mentions, read channel updates, check the Planning Board for ticket changes, and take action.
 
 ---
 
@@ -159,43 +302,6 @@ make build-dev           # Rebuild just the DEV persona image
 make k8s-apply           # Deploy to Kubernetes (requires kubectl configured)
 make k8s-status          # Show Kubernetes resource status
 ```
-
----
-
-## Architecture at a Glance
-
-```
-                    +-------------------+
-                    |   Planning Board  |   (External TaskBoard)
-                    |   (Ticket System) |
-                    +--------+----------+
-                             |
-          +------------------+------------------+
-          |                  |                  |
-     +----v----+       +----v----+        +----v----+
-     |   PO    |       |   DEV   |        |   OPS   |
-     | (Grok)  |       | (Claude)|        |  (GPT)  |
-     +---------+       +---------+        +---------+
-          |                  |                  |
-          |   +---------+   |   +---------+    |
-          |   |   CQ    |   |   |   QA    |    |
-          |   | (Claude)|   |   | (Claude)|    |
-          |   +---------+   |   +---------+    |
-          |        |        |        |         |
-          v        v        v        v         v
-     +-------------------------------------------+
-     |           Meeting Board (Go)              |
-     |  REST API  |  WebSocket  |  Dashboard     |
-     +-------------------------------------------+
-                         |
-                    +----v----+
-                    | MongoDB |
-                    +---------+
-```
-
-**Key principle**: All bot-to-bot communication flows through the Meeting Board. No persona ever calls another persona directly. The Meeting Board is the single source of truth for team communication.
-
-Each persona runs on a heartbeat loop (10-15 minutes), waking up to check the Meeting Board for mentions, read channel updates, check the Planning Board for ticket changes, and take action.
 
 ---
 
@@ -229,10 +335,24 @@ The entrypoint script validates the configuration at startup and will print clea
 
 ### "invalid token" errors in Meeting Board logs
 
-The `AUTH_TOKENS` environment variable in `docker-compose.yml` must include a matching token for each persona. If you set custom `MB_TOKEN_*` values in `.env`, make sure they match the `AUTH_TOKENS` format:
+For the **MCP-driven path**, tokens are auto-generated during `generate` and included in `agents-registry.json`. The Meeting Board reads this file for token validation. Make sure the generated Compose file is being used and that `agents-registry.json` is mounted correctly.
+
+For the **manual path**, the `AUTH_TOKENS` environment variable in `docker-compose.yml` must include a matching token for each persona. If you set custom `MB_TOKEN_*` values in `.env`, make sure they match the `AUTH_TOKENS` format:
 
 ```
 AUTH_TOKENS=po:<po-token>,dev:<dev-token>,cq:<cq-token>,qa:<qa-token>,ops:<ops-token>
+```
+
+### MCP server not connecting
+
+```bash
+# Test the MCP server directly
+echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1}' | node mcp/index.js
+
+# Common causes:
+# - Wrong path in .mcp.json (must be absolute)
+# - Missing npm install in mcp/ directory
+# - Node.js version < 18
 ```
 
 ### Port conflicts
@@ -243,16 +363,7 @@ By default, the Meeting Board binds to port 8080. If that port is in use, set `M
 MEETING_BOARD_PORT=9090
 ```
 
-Each persona also exposes a health check port for debugging:
-
-| Service | Host Port |
-|---|---|
-| meeting-board | 8080 |
-| po | 18790 |
-| dev | 18791 |
-| cq | 18792 |
-| qa | 18793 |
-| ops | 18794 |
+Agent health check ports start at `base_port` (default 18790) and increment per agent.
 
 ### DEV cannot write to the project directory
 
@@ -278,9 +389,11 @@ make clean
 
 This stops all containers, removes Docker volumes (including MongoDB data), and deletes all built images. You will need to run `make build` again afterward.
 
+For the MCP-driven path, you can also use `teardown` through Claude Code, then re-run `generate` and `deploy`.
+
 ---
 
 ## Next Steps
 
-- Read [ARCHITECTURE.md](./ARCHITECTURE.md) for a deep dive into system design, the ticket lifecycle, and the Meeting Board API.
-- Read [EXTENDING.md](./EXTENDING.md) to learn how to customize personas, add new skills, or scale the team.
+- Read [ARCHITECTURE.md](./ARCHITECTURE.md) for a deep dive into system design, the personality system, MCP server architecture, and the ticket lifecycle.
+- Read [EXTENDING.md](./EXTENDING.md) to learn how to customize agents through MCP or manual configuration.
