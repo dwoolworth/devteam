@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', () => {
   initDragAndDrop();
   initModal();
   initStatusSelects();
-  initPrioritySelects();
   initEditButtons();
   initComments();
   initAttachments();
@@ -246,9 +245,12 @@ function createTaskCard(task) {
   const descriptionText = task.description ? task.description.substring(0, 100) + (task.description.length > 100 ? '...' : '') : '';
   const descriptionHtml = linkifyTicketNumbers(escapeHtml(descriptionText));
   
+  const typeBadge = (task.type && task.type !== 'story') ? `<span class="type-badge type-${escapeHtml(task.type)}">${escapeHtml(task.type)}</span>` : '';
+
   card.innerHTML = `
     <div class="task-priority priority-${task.priority}"></div>
     ${task.ticketNumber ? `<span class="ticket-number">${escapeHtml(task.ticketNumber)}</span>` : ''}
+    ${typeBadge}
     <h3>${escapeHtml(task.name)}</h3>
     <p class="task-description">${descriptionHtml}</p>
     <div class="task-meta">
@@ -517,6 +519,8 @@ async function openModal(taskId = null) {
       document.getElementById('taskId').value = task._id;
       document.getElementById('taskName').value = task.name;
       document.getElementById('taskDescription').value = task.description || '';
+      const typeSelect = document.getElementById('taskType');
+      if (typeSelect) typeSelect.value = task.type || 'story';
       document.getElementById('taskPriority').value = task.priority || 3;
       document.getElementById('taskComplexity').value = task.complexity || 3;
       document.getElementById('taskStatus').value = task.status || 'backlog';
@@ -557,8 +561,10 @@ async function handleFormSubmit(e) {
   const taskId = document.getElementById('taskId').value;
   const boardId = document.getElementById('boardId').value;
   
+  const typeSelect = document.getElementById('taskType');
   const taskData = {
     boardId,
+    type: typeSelect ? typeSelect.value : 'story',
     name: document.getElementById('taskName').value,
     description: document.getElementById('taskDescription').value,
     priority: document.getElementById('taskPriority').value,
@@ -890,33 +896,6 @@ function initStatusSelects() {
         row.className = `status-${newStatus}`;
       } catch (error) {
         console.error('Error updating status:', error);
-        location.reload();
-      }
-    });
-  });
-}
-
-function initPrioritySelects() {
-  document.querySelectorAll('.priority-select').forEach(select => {
-    select.addEventListener('change', async (e) => {
-      const taskId = e.target.dataset.taskId;
-      const newPriority = parseInt(e.target.value);
-      
-      try {
-        const response = await fetch(`/api/tasks/${taskId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ priority: newPriority })
-        });
-        
-        if (!response.ok) {
-          throw new Error('Failed to update priority');
-        }
-        
-        // Reload to re-sort by priority
-        location.reload();
-      } catch (error) {
-        console.error('Error updating priority:', error);
         location.reload();
       }
     });

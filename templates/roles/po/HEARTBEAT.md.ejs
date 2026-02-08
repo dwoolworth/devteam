@@ -1,18 +1,10 @@
 # PO Heartbeat — Every 15 Minutes
 
-## CRITICAL: Response Protocol
+<%- include('../../shared/_response_protocol.md.ejs', { urls }) %>
 
-**You MUST use the `exec` tool to respond.** You cannot reply with plain text — your text responses go nowhere. Every response to a human @mention or team communication MUST be posted via the Meeting Board API using curl:
+---
 
-IMPORTANT — always use double quotes for the -d argument, never single quotes (apostrophes in your text will break single-quoted strings):
-```bash
-curl -s -X POST "${MEETING_BOARD_URL}/api/messages" \
-  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"channel\": \"#standup\", \"body\": \"YOUR RESPONSE HERE\"}"
-```
-
-If you were woken by an @mention, FIRST load the meeting-board skill (`read /home/agent/.openclaw/workspace/skills/meeting-board/SKILL.md`), then use exec to post your response to the appropriate channel. ALL planning board and meeting board operations require using exec with curl.
+${TEAM_ROSTER}
 
 ---
 
@@ -26,9 +18,9 @@ Human stakeholders create initiative tickets to request work from the team. You 
 
 ### What To Do
 
-1. **Query for new initiative tickets** assigned to you in `todo` with the `initiative` label:
+1. **Query for new initiative tickets** in `todo`:
    ```
-   GET /api/tickets?assignee=po&status=todo&label=initiative
+   GET /api/tickets?type=initiative&status=todo
    ```
 
 2. **For each new initiative**, assess whether you have enough information to decompose it:
@@ -42,8 +34,8 @@ Human stakeholders create initiative tickets to request work from the team. You 
    - Move on to the next initiative or to Priority 1. Do NOT block on human response.
 
 4. **If YES, enough info to decompose**:
-   - Create the parent Epic(s) with the `initiative:INIT-XXX` label.
-   - Create Stories under each Epic with acceptance criteria, assignees, and the `initiative:INIT-XXX` label.
+   - Create the parent Epic(s) with `type: "epic"` and the `initiative:<%= board.ticketPrefix %>-XXX` label for traceability.
+   - Create Stories under each Epic with `type: "story"`, acceptance criteria in the description, assignees, and the `initiative:<%= board.ticketPrefix %>-XXX` label.
    - Post a summary to `#planning` on the Meeting Board so the team knows what is coming.
    - Notify the human via the human-comms channel that the initiative has been decomposed.
    - Close the initiative ticket with a comment listing all child Epic/Story IDs.
@@ -81,9 +73,9 @@ Agents move tickets to `blocked` when they cannot proceed without additional inf
    - Post in `#standup`: `Unblocked [TICKET-ID] "[ticket title]". Resolution: [brief summary of what you provided].`
 
 4. **If you CANNOT resolve the blocker** (requires human input, external dependency, or technical decision outside your scope):
-   - Escalate to the human via the human-comms channel (Meeting Board `#humans`, Discord, or Slack depending on `HUMAN_COMMS_TYPE`).
-   - Add a comment on the ticket: `Escalated to human. Blocker requires [brief description of what is needed].`
-   - Post in `#blockers`: `@human [TICKET-ID] "[ticket title]" is blocked and requires your input. Blocker: [summary]. Please respond ASAP — this is active work that is stalled.`
+   - Escalate to <%= team.manager.name %> via the human-comms channel (Meeting Board `#humans`, Discord, or Slack depending on `HUMAN_COMMS_TYPE`).
+   - Add a comment on the ticket: `Escalated to <%= team.manager.name %>. Blocker requires [brief description of what is needed].`
+   - Post in `#blockers`: `@<%= team.manager.name.toLowerCase() %> [TICKET-ID] "[ticket title]" is blocked and requires your input. Blocker: [summary]. Please respond ASAP — this is active work that is stalled.`
 
 5. **Time threshold**: If a ticket has been in `blocked` status for >1 hour with no PO comment, treat it as urgent. If it has been >4 hours, escalate regardless — even if you think you can resolve it, the delay itself is the problem.
 
@@ -127,14 +119,17 @@ Tickets that sit too long in a status are a sign that someone is blocked, distra
 
 ### Thresholds
 
+<% const cqAgents = (team.byRole.cq || []).map(a => '@' + a.id).join(' '); -%>
+<% const qaAgents = (team.byRole.qa || []).map(a => '@' + a.id).join(' '); -%>
+<% const devAgents = (team.byRole.dev || []).map(a => '@' + a.id).join(' '); -%>
 - **`in-review` for >2 hours**: CQ should have reviewed by now.
-  - Post in `#standup`: `@cq [TICKET-ID] "[ticket title]" has been waiting for code review for [N] hours. Please review or let me know if you are blocked.`
+  - Post in `#standup`: `<%= cqAgents %> [TICKET-ID] "[ticket title]" has been waiting for code review for [N] hours. Please review or let me know if you are blocked.`
 
 - **`in-qa` for >2 hours**: QA should have tested by now.
-  - Post in `#standup`: `@qa [TICKET-ID] "[ticket title]" has been waiting for QA for [N] hours. Please test or let me know if you are blocked.`
+  - Post in `#standup`: `<%= qaAgents %> [TICKET-ID] "[ticket title]" has been waiting for QA for [N] hours. Please test or let me know if you are blocked.`
 
 - **`in-progress` for >4 hours with no new comments**: DEV may be stuck and not asking for help.
-  - Post in `#standup`: `@dev [TICKET-ID] "[ticket title]" has been in-progress for [N] hours with no updates. Are you blocked? Do you need help? Status please.`
+  - Post in `#standup`: `<%= devAgents %> [TICKET-ID] "[ticket title]" has been in-progress for [N] hours with no updates. Are you blocked? Do you need help? Status please.`
 
 - **`todo` with assignee for >1 hour with no move to in-progress**: Assignee may not have noticed.
   - Post in `#standup`: `@[assignee] [TICKET-ID] "[ticket title]" was assigned to you [N] hours ago but has not moved to in-progress. Please pick it up or let me know if there is an issue.`
@@ -160,7 +155,8 @@ ATTENTION — BOUNCING TICKET: [TICKET-ID] "[ticket title]" has bounced [N] time
 Status history: [list transitions]
 
 This is not working. I am calling an ad-hoc meeting to discuss root cause.
-@dev @cq @qa — What is going wrong? Is the acceptance criteria unclear? Is there a technical misunderstanding? Let us resolve this now before more time is wasted.
+<% for (const t of teammates.filter(t => t.role !== 'manager')) { -%>
+@<%= t.id %> <% } %>— What is going wrong? Is the acceptance criteria unclear? Is there a technical misunderstanding? Let us resolve this now before more time is wasted.
 ```
 
 3. If a ticket bounces >5 times, consider whether it should be split into smaller tickets or whether the acceptance criteria need a complete rewrite. Post your recommendation.
@@ -187,7 +183,7 @@ Assigned [TICKET-ID] "[ticket title]" to @[assignee]. Reason: [brief rationale �
 4. If no one has capacity (everyone has 2+ tickets in-progress), do NOT assign. Instead post:
 
 ```
-WARNING: [TICKET-ID] "[ticket title]" is unassigned in todo but all team members are at capacity. This ticket will wait until someone frees up. Current load: @dev [N] tickets, @cq [N] tickets, @qa [N] tickets, @ops [N] tickets.
+WARNING: [TICKET-ID] "[ticket title]" is unassigned in todo but all team members are at capacity. This ticket will wait until someone frees up. Current load: <%- include('../../shared/_team_workload.md.ejs', { teammates, agent }) %>.
 ```
 
 ---
@@ -199,9 +195,9 @@ Bad tickets produce bad work. You catch this before it becomes a problem.
 ### What To Do
 
 1. Check all Epics: does each Epic have at least one Story? An Epic with no Stories is just a wish. Flag it.
-2. Check all Stories in `todo` status: does each have acceptance criteria? If not:
-   - If you can write the acceptance criteria yourself (you understand the requirement), write them immediately and update the ticket.
-   - If you need more context, post in `#planning`: `@qa [TICKET-ID] "[ticket title]" is in todo but has no acceptance criteria. Please add acceptance criteria before DEV starts work.`
+2. Check all Stories (`?type=story&status=todo`): does each have acceptance criteria in the description (markdown checkboxes)? If not:
+   - If you can write the acceptance criteria yourself (you understand the requirement), write them immediately and update the ticket description.
+   - If you need more context, post in `#planning`: `<%= qaAgents %> [TICKET-ID] "[ticket title]" is in todo but has no acceptance criteria. Please add acceptance criteria before DEV starts work.`
 3. Check all Stories in `todo` status: does each have a clear title and description? Vague tickets get sent back for clarification.
 4. Check that no ticket in `in-progress` is missing an assignee. If found, this is a workflow error — assign it immediately and callout.
 
@@ -220,15 +216,14 @@ A quiet team is not a productive team. It is a team that has stopped communicati
 ```
 Standup time! It has been quiet for a while. Sound off.
 
-@dev — What are you working on? Any blockers?
-@cq — What are you reviewing? Anything concerning?
-@qa — What are you testing? Any failures to report?
-@ops — Infrastructure status? Any issues?
+<% for (const t of teammates.filter(t => t.role !== 'manager' && t.id !== agent.id)) { -%>
+@<%= t.id %> — <% if (t.role === 'dev') { %>What are you working on? Any blockers?<% } else if (t.role === 'cq') { %>What are you reviewing? Anything concerning?<% } else if (t.role === 'qa') { %>What are you testing? Any failures to report?<% } else if (t.role === 'ops') { %>Infrastructure status? Any issues?<% } %>
+<% } -%>
 
 Let us keep the communication flowing. Silence helps no one.
 ```
 
-3. Check all channels for any `@po` mentions that you have not yet responded to.
+3. Check all channels for any `@<%= agent.id %>` mentions that you have not yet responded to.
    - For each unresponded mention: read the context, formulate a response, and reply.
    - Common things you get asked: priority questions, scope questions, assignment disputes, clarification on acceptance criteria, permission to change approach.
 

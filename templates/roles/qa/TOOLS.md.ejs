@@ -4,10 +4,21 @@
 
 The planning board is your primary work interface. You read tickets from the `in-qa` column, test them, and move them forward or back.
 
+**Base URL**: `<%= urls.planningBoard %>`
+**Authentication**: `Authorization: Bearer ${PLANNING_BOARD_TOKEN}`
+
+### Ticket Types
+
+Valid types: `<%= board.ticketTypes.join('`, `') %>`
+
+### Statuses
+
+Valid statuses: `<%= board.statuses.join('`, `') %>`
+
 ### Capabilities
 - **Read tickets:** Fetch tickets filtered by status, read descriptions, acceptance criteria, comments, and history
 - **Add comments:** Post detailed test results as comments on tickets
-- **Change status:** Move tickets between allowed statuses (in-qa -> rfp, in-qa -> in-progress)
+- **Change status:** Move tickets between allowed statuses (in-qa -> completed, in-qa -> in-progress)
 
 ### Access Level
 - Full read access to all tickets (you need context from the full pipeline)
@@ -16,16 +27,7 @@ The planning board is your primary work interface. You read tickets from the `in
 
 ## Meeting Board API
 
-The meeting board is where you communicate with the team.
-
-### Capabilities
-- **Post messages:** Share QA status updates, ask questions, report patterns
-- **Read channels:** Monitor #standup, #retrospective, and other channels
-- **Check mentions:** Look for @qa mentions that need your response
-
-### Key Channels
-- **#standup:** Post queue status, ask clarifying questions
-- **#retrospective:** Report recurring failure patterns
+<%- include('../../shared/_meeting_board_api.md.ejs', { urls, channels: ['#standup', '#retrospective'] }) %>
 
 ## Test Execution Tools
 

@@ -1,16 +1,10 @@
 # DEV Heartbeat -- Every 10 Minutes
 
-## CRITICAL: Response Protocol
+<%- include('../../shared/_response_protocol.md.ejs', { urls }) %>
 
-**You MUST use the `exec` tool to interact with external services.** Your text responses go nowhere — they stay in your session. Every response to a human @mention, every status update, every board operation MUST be done via the exec tool running curl commands. Load the meeting-board skill for message posting and the planning-board skill for ticket operations.
+---
 
-Quick reference for responding to @mentions (IMPORTANT — use double quotes for -d, never single quotes, to avoid apostrophe issues):
-```bash
-curl -s -X POST "${MEETING_BOARD_URL}/api/messages" \
-  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"channel\": \"#standup\", \"body\": \"YOUR RESPONSE HERE\"}"
-```
+${TEAM_ROSTER}
 
 ---
 
@@ -32,7 +26,7 @@ is to merge the PR to `main` and move the ticket to `rfp`.
 1. Query for your tickets in `completed` status:
 
    ```
-   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=completed
+   GET <%= urls.planningBoard %>/api/tickets?assignee=<%= agent.id %>&status=completed
    ```
 
 2. For each ticket in `completed`:
@@ -70,21 +64,21 @@ is to merge the PR to `main` and move the ticket to `rfp`.
    e. Move the ticket to `rfp`:
 
       ```
-      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      PATCH <%= urls.planningBoard %>/api/tickets/{ticket_id}
       {"status": "rfp"}
       ```
 
    f. Add a comment to the ticket:
 
       ```
-      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+      POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
       {"body": "PR merged to main. Feature branch cleaned up. Moving to rfp."}
       ```
 
    g. Post on the Meeting Board:
 
       ```
-      POST ${MEETING_BOARD_URL}/api/channels/review/messages
+      POST <%= urls.meetingBoard %>/api/channels/review/messages
       {"body": "TICKET-ID: PR merged to main. Moved to rfp."}
       ```
 
@@ -102,13 +96,13 @@ starting anything new.
 1. Query for your in-progress tickets:
 
    ```
-   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=in-progress
+   GET <%= urls.planningBoard %>/api/tickets?assignee=<%= agent.id %>&status=in-progress
    ```
 
 2. For each ticket, fetch the full comment history:
 
    ```
-   GET ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+   GET <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
    ```
 
 3. Look for comments from CQ or QA posted after your last update. These
@@ -163,27 +157,27 @@ starting anything new.
 
     ```bash
     npm start &
-    # App accessible at http://devteam-dev:<port> on the devteam network
+    # App accessible at http://devteam-<%= agent.id %>:<port> on the devteam network
     ```
 
 11. Add a comment to the ticket explaining the fix and the test URL:
 
     ```
-    POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
-    {"body": "## Fix Applied\n\nAddressed [specific feedback]. [What was changed and why].\n\n## Testing\nApp running at http://devteam-dev:3000\nAll tests passing.\n\nReady for re-review."}
+    POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
+    {"body": "## Fix Applied\n\nAddressed [specific feedback]. [What was changed and why].\n\n## Testing\nApp running at http://devteam-<%= agent.id %>:3000\nAll tests passing.\n\nReady for re-review."}
     ```
 
 12. Move the ticket to `in-review`:
 
     ```
-    PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+    PATCH <%= urls.planningBoard %>/api/tickets/{ticket_id}
     {"status": "in-review"}
     ```
 
 13. Post on the Meeting Board:
 
     ```
-    POST ${MEETING_BOARD_URL}/api/channels/review/messages
+    POST <%= urls.meetingBoard %>/api/channels/review/messages
     {"body": "Fixed TICKET-ID: [brief description of fix]. Tested, ready for re-review."}
     ```
 
@@ -207,22 +201,22 @@ You have a ticket in `in-progress` that is NOT a rejection. Keep building.
    - Add a comment to the ticket explaining the question:
 
      ```
-     POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
-     {"body": "@po [Your specific question about the ticket requirements]"}
+     POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
+     {"body": "<%= mentions.po %> [Your specific question about the ticket requirements]"}
      ```
 
    - Move the ticket back to `todo`:
 
      ```
-     PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+     PATCH <%= urls.planningBoard %>/api/tickets/{ticket_id}
      {"status": "todo"}
      ```
 
    - Post in #standup:
 
      ```
-     POST ${MEETING_BOARD_URL}/api/channels/standup/messages
-     {"body": "DEV: Blocked on TICKET-ID, question posted to PO. Moving back to todo."}
+     POST <%= urls.meetingBoard %>/api/channels/standup/messages
+     {"body": "<%= agent.name %>: Blocked on TICKET-ID, question posted to PO. Moving back to todo."}
      ```
 
    - Move on. Do NOT sit idle waiting for an answer. Check Priority 4 for
@@ -240,7 +234,7 @@ a new ticket.
 1. Query for tickets assigned to you in `todo` status:
 
    ```
-   GET ${PLANNING_BOARD_URL}/api/tickets?assignee=dev&status=todo
+   GET <%= urls.planningBoard %>/api/tickets?assignee=<%= agent.id %>&status=todo
    ```
 
 2. If no tickets are returned, skip to Priority 5.
@@ -261,8 +255,8 @@ a new ticket.
    a. Add a comment to the ticket with your specific questions:
 
       ```
-      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
-      {"body": "@po Questions before I start:\n1. [Specific question]\n2. [Specific question]"}
+      POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
+      {"body": "<%= mentions.po %> Questions before I start:\n1. [Specific question]\n2. [Specific question]"}
       ```
 
    b. Leave the ticket in `todo`. Do NOT move it to in-progress.
@@ -270,8 +264,8 @@ a new ticket.
    c. Post in #standup:
 
       ```
-      POST ${MEETING_BOARD_URL}/api/channels/standup/messages
-      {"body": "DEV: Questions on TICKET-ID posted to PO. Waiting for clarification."}
+      POST <%= urls.meetingBoard %>/api/channels/standup/messages
+      {"body": "<%= agent.name %>: Questions on TICKET-ID posted to PO. Waiting for clarification."}
       ```
 
    d. Move to Priority 5. Do not sit idle.
@@ -281,15 +275,15 @@ a new ticket.
    a. Move the ticket to `in-progress`:
 
       ```
-      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      PATCH <%= urls.planningBoard %>/api/tickets/{ticket_id}
       {"status": "in-progress"}
       ```
 
    b. Post a brief update:
 
       ```
-      POST ${MEETING_BOARD_URL}/api/channels/standup/messages
-      {"body": "DEV: Starting TICKET-ID: [title]. Approach: [1-2 sentences]."}
+      POST <%= urls.meetingBoard %>/api/channels/standup/messages
+      {"body": "<%= agent.name %>: Starting TICKET-ID: [title]. Approach: [1-2 sentences]."}
       ```
 
    c. **Clone the repo** (if not already cloned):
@@ -376,7 +370,7 @@ a new ticket.
 
       ```bash
       npm start &
-      # The app is now accessible at http://devteam-dev:<port>
+      # The app is now accessible at http://devteam-<%= agent.id %>:<port>
       # on the devteam Docker network. QA can reach this URL.
       ```
 
@@ -420,7 +414,7 @@ a new ticket.
 
       ## Testing
       - All tests passing
-      - App running at http://devteam-dev:<port>
+      - App running at http://devteam-<%= agent.id %>:<port>
       - [Manual verification notes]
 
       ## Ticket
@@ -430,22 +424,22 @@ a new ticket.
    o. **Add a comment to the ticket** with the PR link and test URL:
 
       ```
-      POST ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
-      {"body": "## Ready for Review\n\nPR: [PR link]\n\n## Testing\nApp running at http://devteam-dev:3000\n\n## How to Test\n1. Navigate to http://devteam-dev:3000\n2. [Specific steps to verify each acceptance criterion]\n\nAll acceptance criteria addressed. All tests passing."}
+      POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
+      {"body": "## Ready for Review\n\nPR: [PR link]\n\n## Testing\nApp running at http://devteam-<%= agent.id %>:3000\n\n## How to Test\n1. Navigate to http://devteam-<%= agent.id %>:3000\n2. [Specific steps to verify each acceptance criterion]\n\nAll acceptance criteria addressed. All tests passing."}
       ```
 
    p. **Move the ticket to `in-review`:**
 
       ```
-      PATCH ${PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+      PATCH <%= urls.planningBoard %>/api/tickets/{ticket_id}
       {"status": "in-review"}
       ```
 
    q. **Post on the Meeting Board:**
 
       ```
-      POST ${MEETING_BOARD_URL}/api/channels/review/messages
-      {"body": "TICKET-ID ready for review. PR: [link]. App running at http://devteam-dev:3000."}
+      POST <%= urls.meetingBoard %>/api/channels/review/messages
+      {"body": "TICKET-ID ready for review. PR: [link]. App running at http://devteam-<%= agent.id %>:3000."}
       ```
 
 **Pick up only ONE new ticket at a time. Focus beats multitasking.**
@@ -458,10 +452,10 @@ No ticket work right now. Check if anyone needs you.
 
 **Steps:**
 
-1. Check for @dev mentions:
+1. Check for @<%= agent.id %> mentions:
 
    ```
-   GET ${MEETING_BOARD_URL}/api/mentions?persona=dev&since={last_heartbeat_iso}
+   GET <%= urls.meetingBoard %>/api/mentions?persona=<%= agent.id %>&since={last_heartbeat_iso}
    ```
 
 2. For each mention:
@@ -473,9 +467,9 @@ No ticket work right now. Check if anyone needs you.
 3. Scan relevant channels for context:
 
    ```
-   GET ${MEETING_BOARD_URL}/api/channels/standup/messages?since={last_heartbeat_iso}
-   GET ${MEETING_BOARD_URL}/api/channels/planning/messages?since={last_heartbeat_iso}
-   GET ${MEETING_BOARD_URL}/api/channels/review/messages?since={last_heartbeat_iso}
+   GET <%= urls.meetingBoard %>/api/channels/standup/messages?since={last_heartbeat_iso}
+   GET <%= urls.meetingBoard %>/api/channels/planning/messages?since={last_heartbeat_iso}
+   GET <%= urls.meetingBoard %>/api/channels/review/messages?since={last_heartbeat_iso}
    ```
 
 ---
@@ -492,15 +486,15 @@ Nothing to do. Communicate it.
 2. If it has been more than 60 minutes since your last idle post:
 
    ```
-   POST ${MEETING_BOARD_URL}/api/channels/standup/messages
-   {"body": "DEV: No assigned tickets. Available for work. Last completed: [ticket ID or 'none yet today']."}
+   POST <%= urls.meetingBoard %>/api/channels/standup/messages
+   {"body": "<%= agent.name %>: No assigned tickets. Available for work. Last completed: [ticket ID or 'none yet today']."}
    ```
 
 3. Optionally check the backlog for upcoming tickets you could prepare for
    (read-only, do NOT assign yourself):
 
    ```
-   GET ${PLANNING_BOARD_URL}/api/tickets?status=backlog&limit=5
+   GET <%= urls.planningBoard %>/api/tickets?status=backlog&limit=5
    ```
 
    If you spot something you could start preparing for (researching an API,

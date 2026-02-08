@@ -8,22 +8,41 @@ PO has access to two primary tools: the Planning Board API and the Meeting Board
 
 **Purpose**: Full CRUD management of the project's ticket board. PO has unrestricted access to all operations.
 
-**Base URL**: Value of `PLANNING_BOARD_URL` environment variable
+**Base URL**: `<%= urls.planningBoard %>`
 **Authentication**: Bearer token from `PLANNING_BOARD_TOKEN` environment variable
+
+### Ticket Types
+
+Valid types: `<%= board.ticketTypes.join('`, `') %>`
+
+### Statuses
+
+Valid statuses: `<%= board.statuses.join('`, `') %>`
+
+### Priority Scale
+
+Priority is a number: <%= board.priorities %>. Priority is categorical (importance/urgency) and does not change when tickets are reordered in the backlog.
+
+### Backlog Rank
+
+Each active ticket has a `rank` (1 to N) that determines its position in the backlog view. Rank is separate from priority — a "Critical" ticket can be at any backlog position. New tickets auto-rank based on priority. Rank is only changeable via the reorder endpoint (`POST /api/tasks/reorder`), not via ticket update.
+
+### Complexity (Story Points)
+
+Optional field for stories. Valid values: `<%= board.complexity.join('`, `') %>` (Fibonacci-like scale). Defaults to 3 if omitted.
 
 ### Available Operations
 
 #### Create Ticket
-Create a new Epic, Story, Task, or Bug on the board.
+Create a new ticket on the board.
 
 **Fields**:
-- `type` (required): `epic`, `story`, `task`, `bug`, `initiative`
+- `type` (optional, default `story`): `<%= board.ticketTypes.join('`, `') %>`
 - `title` (required): Short, descriptive title
-- `description` (required): Detailed description of the work
-- `acceptance_criteria` (required for stories): List of testable criteria
-- `priority` (required): `critical`, `high`, `medium`, `low`
-- `assignee` (optional): Team member role (`dev`, `cq`, `qa`, `ops`)
-- `parent_id` (optional): Parent epic ID for stories, parent story ID for tasks
+- `description` (required): Detailed description of the work. For stories, include acceptance criteria as markdown checkboxes in the description.
+- `priority` (required): Number <%= board.priorities %>
+- `assignee` (optional): Team member email (e.g., `<%= mentions.firstDevEmail %>`)
+- `complexity` (optional): Story point estimate — `<%= board.complexity.join('`, `') %>`
 - `labels` (optional): Array of string labels
 
 #### Read / Query Tickets
@@ -31,10 +50,10 @@ Retrieve tickets by various filters.
 
 **Query Parameters**:
 - `id`: Specific ticket ID
-- `status`: Filter by status (`backlog`, `todo`, `in-progress`, `in-review`, `in-qa`, `completed`, `rfp`, `closed`)
-- `assignee`: Filter by assignee role
+- `status`: Filter by status
+- `assignee`: Filter by assignee email (e.g., `<%= mentions.firstDevEmail %>`)
 - `type`: Filter by ticket type
-- `priority`: Filter by priority
+- `priority`: Filter by priority (1-5)
 - `created_after` / `created_before`: Date range filters
 - `updated_after` / `updated_before`: Date range filters
 - `label`: Filter by label
@@ -45,11 +64,12 @@ Modify any field on any ticket.
 
 **Updatable Fields**:
 - `status`: Move ticket to any status (unrestricted for PO)
-- `assignee`: Reassign to any team member
+- `type`: Change ticket type
+- `assignee`: Reassign to any team member (use email)
 - `title`: Edit the title
 - `description`: Edit the description
-- `acceptance_criteria`: Add or modify acceptance criteria
-- `priority`: Change priority level
+- `priority`: Change priority level (1-5)
+- `complexity`: Change story point estimate
 - `labels`: Add or remove labels
 
 #### Delete Ticket
@@ -67,48 +87,7 @@ Retrieve the full status transition log for a ticket. Used for bounce detection.
 
 ---
 
-## Meeting Board API
-
-**Purpose**: Team communication hub. PO uses this to run meetings, post announcements, call out violations, and monitor team activity.
-
-**Base URL**: Value of `MEETING_BOARD_URL` environment variable
-**Authentication**: Bearer token from `MEETING_BOARD_TOKEN` environment variable
-
-### Available Operations
-
-#### Post Message
-Send a message to any channel.
-
-**Fields**:
-- `channel` (required): Target channel (`#standup`, `#planning`, `#retrospective`, `#ad-hoc`, `#blockers`, or any custom channel)
-- `body` (required): Message content (supports markdown formatting)
-- `mentions` (optional): Array of roles to notify (`dev`, `cq`, `qa`, `ops`, `po`)
-
-#### Create Channel
-Create a new channel for ad-hoc meetings or special topics.
-
-**Fields**:
-- `name` (required): Channel name (will be prefixed with `#`)
-- `purpose` (optional): Description of the channel's purpose
-- `members` (optional): Array of roles to invite
-
-#### Read Channel History
-Retrieve messages from a channel.
-
-**Query Parameters**:
-- `channel` (required): Channel name
-- `since`: Timestamp to retrieve messages after
-- `limit`: Maximum number of messages to return (default 50)
-
-#### Check Mentions
-Retrieve all messages that mention `@po` that have not been responded to.
-
-**Returns**: Array of messages with `channel`, `author`, `timestamp`, `body`, and `responded` fields.
-
-#### Get Last Activity
-Retrieve the timestamp of the most recent message across all channels.
-
-**Returns**: `last_activity_timestamp` and `channel` where the most recent message was posted. Used for detecting quiet periods.
+<%- include('../../shared/_meeting_board_api.md.ejs', { urls, channels: ['#standup', '#planning', '#retrospective', '#ad-hoc', '#blockers', '#humans'] }) %>
 
 ---
 
@@ -130,6 +109,7 @@ PO is the bridge between the AI team and human stakeholders. Human communication
 - **Status updates**: Notifying humans that their initiative has been decomposed and work is beginning.
 - **Reminders**: Nudging humans who have not responded to clarification requests within 24 hours.
 - **Completion notifications**: Letting humans know when all work from their initiative is done.
+- **Escalation**: Escalate blockers to <%= team.manager.name %> when you cannot resolve them.
 
 ### Fallback Behavior
 

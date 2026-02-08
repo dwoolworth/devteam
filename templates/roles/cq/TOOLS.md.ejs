@@ -8,32 +8,40 @@ These are the tools and APIs available to CQ for performing code reviews, commun
 
 The planning board is where tickets live. CQ uses it to read the review queue, post review feedback, and transition ticket statuses.
 
-**Base URL**: `{PLANNING_BOARD_URL}` (from environment variable)
-**Authentication**: `Authorization: Bearer {PLANNING_BOARD_TOKEN}` (from environment variable)
+**Base URL**: `<%= urls.planningBoard %>`
+**Authentication**: `Authorization: Bearer ${PLANNING_BOARD_TOKEN}`
+
+### Ticket Types
+
+Valid types: `<%= board.ticketTypes.join('`, `') %>`
+
+### Statuses
+
+Valid statuses: `<%= board.statuses.join('`, `') %>`
 
 ### Available Operations
 
 #### List tickets by status
 ```
-GET {PLANNING_BOARD_URL}/api/tickets?status=in-review
+GET <%= urls.planningBoard %>/api/tickets?status=in-review
 ```
 Returns all tickets currently awaiting CQ review. Process oldest first.
 
 #### Get a specific ticket
 ```
-GET {PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+GET <%= urls.planningBoard %>/api/tickets/{ticket_id}
 ```
 Returns full ticket details including description, acceptance criteria, assignee, and metadata.
 
 #### Get ticket comments
 ```
-GET {PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+GET <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
 ```
 Returns the full comment thread on a ticket. Read all comments to understand context and prior discussion.
 
 #### Post a comment on a ticket
 ```
-POST {PLANNING_BOARD_URL}/api/tickets/{ticket_id}/comments
+POST <%= urls.planningBoard %>/api/tickets/{ticket_id}/comments
 Content-Type: application/json
 
 {
@@ -44,7 +52,7 @@ Used for both approval comments and rejection feedback.
 
 #### Update ticket status
 ```
-PUT {PLANNING_BOARD_URL}/api/tickets/{ticket_id}
+PUT <%= urls.planningBoard %>/api/tickets/{ticket_id}
 Content-Type: application/json
 
 {
@@ -59,47 +67,7 @@ Allowed transitions for CQ:
 
 ## 2. Meeting Board API
 
-The meeting board is for team communication. CQ uses it for architecture discussions, pattern reporting, and responding to mentions.
-
-**Base URL**: `{MEETING_BOARD_URL}` (from environment variable)
-**Authentication**: `Authorization: Bearer {MEETING_BOARD_TOKEN}` (from environment variable)
-
-### Available Operations
-
-#### Read channel messages
-```
-GET {MEETING_BOARD_URL}/api/channels/{channel}/messages
-GET {MEETING_BOARD_URL}/api/channels/{channel}/messages?since={ISO8601_timestamp}
-```
-Channels CQ monitors: `planning`, `review`, `retrospective`, `general`.
-
-#### Post a message to a channel
-```
-POST {MEETING_BOARD_URL}/api/channels/{channel}/messages
-Content-Type: application/json
-
-{
-  "body": "Your message here"
-}
-```
-Use #review for review discussions, #planning for architecture input, #retrospective for pattern reports.
-
-#### Check @cq mentions
-```
-GET {MEETING_BOARD_URL}/api/mentions?since={ISO8601_timestamp}
-```
-Returns all messages that mention @cq since the given timestamp. Respond to these within the same heartbeat cycle.
-
-#### Reply to a message
-```
-POST {MEETING_BOARD_URL}/api/channels/{channel}/messages
-Content-Type: application/json
-
-{
-  "body": "Your reply here",
-  "thread_id": "{original_message_id}"
-}
-```
+<%- include('../../shared/_meeting_board_api.md.ejs', { urls, channels: ['#planning', '#review', '#retrospective', '#general'] }) %>
 
 ---
 

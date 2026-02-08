@@ -7,6 +7,8 @@ description: Read review queue, post review feedback, and transition tickets thr
 
 CQ uses the planning board as the primary interface for the code review pipeline. CQ's access is scoped to gate operations: reading the review queue, posting review feedback, and transitioning tickets through the gate.
 
+**Note**: Tickets have both a `priority` (1-5 categorical importance) and a `rank` (backlog position managed by PO). CQ does not modify rank.
+
 ## Configuration
 
 - **Base URL**: Provided via the `PLANNING_BOARD_URL` environment variable

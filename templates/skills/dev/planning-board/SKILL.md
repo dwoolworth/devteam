@@ -12,6 +12,8 @@ through their lifecycle. DEV has LIMITED access to the planning board -- you
 can read your assigned tickets, update their status within allowed transitions,
 and add comments. You cannot create, delete, or reassign tickets.
 
+**Note**: Tickets have both a `priority` (1-5 categorical importance) and a `rank` (backlog position). Rank is managed by the PO and determines backlog ordering. DEV cannot change rank.
+
 ## Configuration
 
 | Variable              | Description                        |
@@ -263,7 +265,7 @@ curl -s -X POST \
   "${PLANNING_BOARD_URL}/api/tickets/TICKET-42/comments" \
   -H "Authorization: Bearer ${PLANNING_BOARD_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"body": "@po Questions: 1. [question] 2. [question]"}'
+  -d '{"body": "${MENTION_PO} Questions: 1. [question] 2. [question]"}'
 
 # Move back to todo
 curl -s -X PATCH \

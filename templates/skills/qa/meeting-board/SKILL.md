@@ -30,7 +30,7 @@ curl -s "${MEETING_BOARD_URL}/api/channels/${CHANNEL_NAME}/messages?limit=20" \
   -H "Content-Type: application/json"
 ```
 
-### Check for @qa Mentions
+### Check for ${MENTION_QA} Mentions
 
 ```bash
 curl -s "${MEETING_BOARD_URL}/api/mentions?agent=qa" \
@@ -38,7 +38,7 @@ curl -s "${MEETING_BOARD_URL}/api/mentions?agent=qa" \
   -H "Content-Type: application/json"
 ```
 
-Returns all unread messages that mention @qa across all channels.
+Returns all unread messages that mention ${MENTION_QA} across all channels.
 
 ### List Available Channels
 
@@ -65,5 +65,5 @@ curl -s "${MEETING_BOARD_URL}/api/channels" \
 - Keep messages concise and actionable
 - When asking questions, reference the specific ticket ID
 - When reporting patterns, include specific ticket IDs as examples
-- Respond to @qa mentions promptly during your heartbeat cycle
+- Respond to ${MENTION_QA} mentions promptly during your heartbeat cycle
 - Do not post in channels that are outside your scope (e.g., deployment channels belong to OPS)

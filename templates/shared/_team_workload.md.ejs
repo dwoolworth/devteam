@@ -1,0 +1,4 @@
+<% const agentTeammates = teammates.filter(t => t.role !== 'manager' && t.id !== agent.id); -%>
+Current load: <% for (let i = 0; i < agentTeammates.length; i++) { const t = agentTeammates[i]; -%>
+@<%= t.id %> [N] tickets<%= i < agentTeammates.length - 1 ? ', ' : '' -%>
+<% } %>

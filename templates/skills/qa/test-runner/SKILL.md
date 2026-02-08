@@ -37,7 +37,7 @@ DEV provides the target URL in their ticket comment when moving the ticket to `i
 3. Look for HTTP/HTTPS URLs (e.g., `http://dev-app:3000`, `http://devteam-dev-app:8080`)
 
 If no URL is found in the ticket comments:
-- Post to **#standup**: `@dev [TICKET-ID] is in in-qa but no test URL was provided. Where is the running instance?`
+- Post to **#standup**: `${MENTION_DEV} [TICKET-ID] is in in-qa but no test URL was provided. Where is the running instance?`
 - Do NOT attempt to test without a target URL. Move to the next ticket in the queue.
 
 ## Browser Testing with Playwright

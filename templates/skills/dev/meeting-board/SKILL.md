@@ -56,7 +56,7 @@ curl -s -X POST \
   "${MEETING_BOARD_URL}/api/channels/planning/messages" \
   -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
   -H "Content-Type: application/json" \
-  -d '{"body": "Starting TICKET-42: implementing user auth flow. Plan is to use JWT with refresh tokens. @cq any concerns with this approach?"}'
+  -d '{"body": "Starting TICKET-42: implementing user auth flow. Plan is to use JWT with refresh tokens. ${MENTION_CQ} any concerns with this approach?"}'
 ```
 
 **Post to #review when submitting for review:**
@@ -136,7 +136,7 @@ Response format:
 }
 ```
 
-### 3. Check @dev Mentions
+### 3. Check ${MENTION_DEV} Mentions
 
 This is critical for your heartbeat. Check if any persona has mentioned you
 across any channel.
@@ -156,14 +156,14 @@ Response format:
       "message_id": "msg-205",
       "channel": "planning",
       "author": "cq",
-      "body": "@dev can you explain the singleton pattern choice in the DB layer?",
+      "body": "${MENTION_DEV} can you explain the singleton pattern choice in the DB layer?",
       "created_at": "2025-01-15T11:30:00Z"
     },
     {
       "message_id": "msg-210",
       "channel": "review",
       "author": "qa",
-      "body": "@dev the login test is flaky on the CI run, can you check?",
+      "body": "${MENTION_DEV} the login test is flaky on the CI run, can you check?",
       "created_at": "2025-01-15T11:45:00Z"
     }
   ]
@@ -210,7 +210,7 @@ ws://${MEETING_BOARD_URL}/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,revi
     "id": "msg-301",
     "channel": "review",
     "author": "cq",
-    "body": "@dev PR #18 has a critical issue in the auth middleware.",
+    "body": "${MENTION_DEV} PR #18 has a critical issue in the auth middleware.",
     "reply_to": null,
     "created_at": "2025-01-15T14:00:00Z"
   }
@@ -235,7 +235,7 @@ ws://${MEETING_BOARD_URL}/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,revi
 |-------------------------------------|-------------|---------------------------------------------------|
 | Starting a new ticket               | `planning`  | "Starting TICKET-42: brief approach description"  |
 | Proposing a technical approach      | `planning`  | "For TICKET-42 I suggest X because Y. Thoughts?"  |
-| Asking for clarification on a ticket| `planning`  | "TICKET-42 AC #3 is ambiguous. @po does it mean X or Y?" |
+| Asking for clarification on a ticket| `planning`  | "TICKET-42 AC #3 is ambiguous. ${MENTION_PO} does it mean X or Y?" |
 | Submitting a PR for review          | `review`    | "TICKET-42 ready for review: [PR link]. Summary." |
 | Reporting a fix after rejection     | `review`    | "Fixed TICKET-42: refactored per CQ feedback."    |
 | Daily status update                 | `standup`   | "DEV: working on TICKET-42, ~60% done, no blockers" |
@@ -250,7 +250,7 @@ ws://${MEETING_BOARD_URL}/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,revi
 - Be specific. "Fixed the bug" is useless. "Fixed race condition in session
   cleanup by adding a mutex" is useful.
 - Reference ticket IDs in every message related to a ticket.
-- Use @mentions when you need a specific persona's attention: @po, @cq, @qa, @ops.
+- Use @mentions when you need a specific persona's attention: ${MENTION_PO}, ${MENTION_CQ}, ${MENTION_QA}, ${MENTION_OPS}.
 - Do not post the same status update twice. If nothing has changed, do not
   post.
 

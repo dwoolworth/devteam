@@ -35,6 +35,8 @@ type Handlers struct {
 	tokenToAgent   map[string]*models.AgentInfo
 	nameToAgent    map[string]*models.AgentInfo
 	mentionRe      *regexp.Regexp
+	managerName    string // display name for the manager (from registry)
+	managerID      string // ID for the manager (from registry)
 }
 
 // SetAgents updates the agent registry and rebuilds lookup maps.
@@ -45,10 +47,17 @@ func (h *Handlers) SetAgents(agents []models.AgentInfo) {
 	h.agents = agents
 	h.tokenToAgent = make(map[string]*models.AgentInfo, len(agents))
 	h.nameToAgent = make(map[string]*models.AgentInfo, len(agents))
+	h.managerName = "Manager"
+	h.managerID = "manager"
 
 	mentionNames := []string{}
 	for i := range agents {
 		a := &h.agents[i]
+		// Detect the manager entry from the registry
+		if a.Role == "manager" {
+			h.managerName = a.Name
+			h.managerID = a.ID
+		}
 		if a.Token != "" {
 			h.tokenToAgent[a.Token] = a
 		}
@@ -61,7 +70,7 @@ func (h *Handlers) SetAgents(agents []models.AgentInfo) {
 	}
 
 	// Also include legacy role names for backward compat
-	for _, role := range []string{"po", "dev", "cq", "qa", "ops"} {
+	for _, role := range []string{"po", "dev", "cq", "qa", "ops", "manager", "human"} {
 		mentionNames = append(mentionNames, role)
 	}
 
@@ -101,7 +110,7 @@ func respondError(w http.ResponseWriter, status int, msg string) {
 
 // AuthMiddleware extracts the Bearer token from the Authorization header,
 // resolves the author (agent ID or role), and injects it into the request context.
-// Dashboard requests (no auth) are treated as "human".
+// Dashboard requests (no auth) are treated as the manager.
 func (h *Handlers) AuthMiddleware(next http.Handler) http.Handler {
 	// Build legacy token->role map
 	tokenToRole := make(map[string]string, len(h.Tokens))
@@ -112,9 +121,9 @@ func (h *Handlers) AuthMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
 
-		// No auth header -> human (dashboard user).
+		// No auth header -> manager (dashboard user).
 		if authHeader == "" {
-			ctx := context.WithValue(r.Context(), authorKey, "human")
+			ctx := context.WithValue(r.Context(), authorKey, "manager")
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -129,7 +138,7 @@ func (h *Handlers) AuthMiddleware(next http.Handler) http.Handler {
 
 		// Special dashboard token.
 		if token == "dashboard" {
-			ctx := context.WithValue(r.Context(), authorKey, "human")
+			ctx := context.WithValue(r.Context(), authorKey, "manager")
 			next.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -163,7 +172,7 @@ func getAuthor(r *http.Request) string {
 	if author, ok := r.Context().Value(authorKey).(string); ok {
 		return author
 	}
-	return "human"
+	return "manager"
 }
 
 // getAuthorInfo extracts the full AgentInfo from the request context, if available.
@@ -345,9 +354,11 @@ func (h *Handlers) PostMessage(w http.ResponseWriter, r *http.Request) {
 	if authorInfo != nil {
 		msg.AuthorName = authorInfo.Name
 		msg.AuthorRole = authorInfo.Role
-	} else if author == "human" {
-		msg.AuthorName = "Human"
-		msg.AuthorRole = "human"
+	} else if author == "manager" {
+		h.mu.RLock()
+		msg.AuthorName = h.managerName
+		h.mu.RUnlock()
+		msg.AuthorRole = "manager"
 	}
 
 	if req.ThreadID != "" {
@@ -546,9 +557,11 @@ func (h *Handlers) PostMessageByName(w http.ResponseWriter, r *http.Request) {
 	if authorInfo != nil {
 		msg.AuthorName = authorInfo.Name
 		msg.AuthorRole = authorInfo.Role
-	} else if author == "human" {
-		msg.AuthorName = "Human"
-		msg.AuthorRole = "human"
+	} else if author == "manager" {
+		h.mu.RLock()
+		msg.AuthorName = h.managerName
+		h.mu.RUnlock()
+		msg.AuthorRole = "manager"
 	}
 
 	if req.ThreadID != "" {

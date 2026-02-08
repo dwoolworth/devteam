@@ -1,16 +1,10 @@
 # CQ Heartbeat (Every 10 Minutes)
 
-## CRITICAL: Response Protocol
+<%- include('../../shared/_response_protocol.md.ejs', { urls }) %>
 
-**You MUST use the `exec` tool to interact with external services.** Your text responses go nowhere — they stay in your session. Every response to a human @mention, every review comment, every board operation MUST be done via the exec tool running curl commands. Load the meeting-board skill for message posting and the planning-board skill for ticket operations.
+---
 
-Quick reference for responding to @mentions (IMPORTANT — use double quotes for -d, never single quotes, to avoid apostrophe issues):
-```bash
-curl -s -X POST "${MEETING_BOARD_URL}/api/messages" \
-  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"channel\": \"#standup\", \"body\": \"YOUR RESPONSE HERE\"}"
-```
+${TEAM_ROSTER}
 
 ---
 
@@ -25,8 +19,8 @@ The `in-review` queue is your primary responsibility. Tickets waiting for review
 ### Step 1: Fetch the Queue
 
 ```
-GET {PLANNING_BOARD_URL}/api/tickets?status=in-review
-Authorization: Bearer {PLANNING_BOARD_TOKEN}
+GET <%= urls.planningBoard %>/api/tickets?status=in-review
+Authorization: Bearer ${PLANNING_BOARD_TOKEN}
 ```
 
 Process tickets oldest first. First in, first reviewed. No favoritism, no skipping ahead.
@@ -71,8 +65,8 @@ If the code meets all criteria, approve it:
 
 1. Post an approval comment on the ticket:
    ```
-   POST {PLANNING_BOARD_URL}/api/tickets/{id}/comments
-   Authorization: Bearer {PLANNING_BOARD_TOKEN}
+   POST <%= urls.planningBoard %>/api/tickets/{id}/comments
+   Authorization: Bearer ${PLANNING_BOARD_TOKEN}
    Content-Type: application/json
 
    {
@@ -82,8 +76,8 @@ If the code meets all criteria, approve it:
 
 2. Move the ticket to `in-qa`:
    ```
-   PUT {PLANNING_BOARD_URL}/api/tickets/{id}
-   Authorization: Bearer {PLANNING_BOARD_TOKEN}
+   PUT <%= urls.planningBoard %>/api/tickets/{id}
+   Authorization: Bearer ${PLANNING_BOARD_TOKEN}
    Content-Type: application/json
 
    {
@@ -97,8 +91,8 @@ If the code does NOT meet criteria, reject it. This requires BOTH actions -- no 
 
 1. Post a detailed rejection comment:
    ```
-   POST {PLANNING_BOARD_URL}/api/tickets/{id}/comments
-   Authorization: Bearer {PLANNING_BOARD_TOKEN}
+   POST <%= urls.planningBoard %>/api/tickets/{id}/comments
+   Authorization: Bearer ${PLANNING_BOARD_TOKEN}
    Content-Type: application/json
 
    {
@@ -108,8 +102,8 @@ If the code does NOT meet criteria, reject it. This requires BOTH actions -- no 
 
 2. THEN move the ticket back to `in-progress`:
    ```
-   PUT {PLANNING_BOARD_URL}/api/tickets/{id}
-   Authorization: Bearer {PLANNING_BOARD_TOKEN}
+   PUT <%= urls.planningBoard %>/api/tickets/{id}
+   Authorization: Bearer ${PLANNING_BOARD_TOKEN}
    Content-Type: application/json
 
    {
@@ -126,9 +120,9 @@ Both. Always. A rejection without a comment is just confusion. A comment without
 After the review queue is clear (or if it is empty), check the meeting board for planning and review discussions.
 
 ```
-GET {MEETING_BOARD_URL}/api/channels/planning/messages?since={last_heartbeat}
-GET {MEETING_BOARD_URL}/api/channels/review/messages?since={last_heartbeat}
-Authorization: Bearer {MEETING_BOARD_TOKEN}
+GET <%= urls.meetingBoard %>/api/channels/planning/messages?since={last_heartbeat}
+GET <%= urls.meetingBoard %>/api/channels/review/messages?since={last_heartbeat}
+Authorization: Bearer ${MEETING_BOARD_TOKEN}
 ```
 
 Look for:
@@ -141,13 +135,13 @@ Weigh in early. It is vastly cheaper to shape a design before implementation tha
 
 ---
 
-## Priority 3: Respond to @cq Mentions
+## Priority 3: Respond to @<%= agent.id %> Mentions
 
 Check for direct mentions that need your attention.
 
 ```
-GET {MEETING_BOARD_URL}/api/mentions?since={last_heartbeat}
-Authorization: Bearer {MEETING_BOARD_TOKEN}
+GET <%= urls.meetingBoard %>/api/mentions?since={last_heartbeat}
+Authorization: Bearer ${MEETING_BOARD_TOKEN}
 ```
 
 Respond to:
@@ -168,8 +162,8 @@ After each review cycle, note what you found. If you see the same category of is
 
 Post to #retrospective:
 ```
-POST {MEETING_BOARD_URL}/api/channels/retrospective/messages
-Authorization: Bearer {MEETING_BOARD_TOKEN}
+POST <%= urls.meetingBoard %>/api/channels/retrospective/messages
+Authorization: Bearer ${MEETING_BOARD_TOKEN}
 Content-Type: application/json
 
 {

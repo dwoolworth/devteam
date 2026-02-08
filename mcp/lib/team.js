@@ -20,6 +20,10 @@ function defaultTeam() {
         provider: 'local',
       },
       credentials: {},
+      manager: {
+        name: 'Manager',
+        email: 'manager@devteam.local',
+      },
     },
     team: {
       base_port: 18790,
@@ -44,11 +48,14 @@ export function saveTeam(projectRoot, team) {
 }
 
 // Project configuration
-export function setupProject(projectRoot, { name, description, repo }) {
+export function setupProject(projectRoot, { name, description, repo, manager_name, manager_email }) {
   const team = loadTeam(projectRoot);
   if (name) team.project.name = name;
   if (description) team.project.description = description;
   if (repo) team.project.repo = repo;
+  if (!team.project.manager) team.project.manager = { name: 'Manager', email: 'manager@devteam.local' };
+  if (manager_name) team.project.manager.name = manager_name;
+  if (manager_email) team.project.manager.email = manager_email;
   saveTeam(projectRoot, team);
   return team.project;
 }
@@ -122,4 +129,53 @@ export function removeAgent(projectRoot, name) {
 export function getTeam(projectRoot) {
   const team = loadTeam(projectRoot);
   return team.team;
+}
+
+export function addHuman(projectRoot, { name, email, role }) {
+  const team = loadTeam(projectRoot);
+  if (!team.project.humans) team.project.humans = [];
+  const existing = team.project.humans.find(
+    (h) => h.name.toLowerCase() === name.toLowerCase()
+  );
+  if (existing) {
+    throw new Error(`Human "${name}" already exists.`);
+  }
+  const human = { name, email, role: role || 'stakeholder' };
+  team.project.humans.push(human);
+  saveTeam(projectRoot, team);
+  return human;
+}
+
+export function removeHuman(projectRoot, name) {
+  const team = loadTeam(projectRoot);
+  if (!team.project.humans) team.project.humans = [];
+  const idx = team.project.humans.findIndex(
+    (h) => h.name.toLowerCase() === name.toLowerCase()
+  );
+  if (idx === -1) {
+    throw new Error(`Human "${name}" not found.`);
+  }
+  const removed = team.project.humans.splice(idx, 1)[0];
+  saveTeam(projectRoot, team);
+  return removed;
+}
+
+export function resetTeam(projectRoot) {
+  const genDir = path.join(projectRoot, 'generated');
+  const removed = [];
+
+  // Remove generated directory
+  if (fs.existsSync(genDir)) {
+    fs.rmSync(genDir, { recursive: true, force: true });
+    removed.push('generated/');
+  }
+
+  // Reset team.yml to defaults (preserves project config, wipes agents)
+  const team = loadTeam(projectRoot);
+  const agentCount = team.team.agents.length;
+  team.team.agents = [];
+  saveTeam(projectRoot, team);
+  removed.push(`team.yml (cleared ${agentCount} agents)`);
+
+  return { removed, project: team.project };
 }

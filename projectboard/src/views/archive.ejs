@@ -59,6 +59,16 @@
         </div>
         
         <div class="filter-group">
+          <label>Type</label>
+          <select id="typeFilter" class="filter-select">
+            <option value="">All Types</option>
+            <option value="initiative">Initiative</option>
+            <option value="epic">Epic</option>
+            <option value="story">Story</option>
+          </select>
+        </div>
+
+        <div class="filter-group">
           <label>Release</label>
           <input type="text" id="releaseFilter" placeholder="e.g. v1.2.0" class="filter-input filter-input-sm">
         </div>
@@ -83,6 +93,7 @@
         <thead>
           <tr>
             <th class="sortable" data-sort="ticketNumber">Ticket</th>
+            <th class="sortable" data-sort="type">Type</th>
             <th class="sortable" data-sort="priority">Pri</th>
             <th class="sortable" data-sort="name">Name</th>
             <th class="sortable" data-sort="status">Status</th>
@@ -95,14 +106,16 @@
         </thead>
         <tbody id="taskTableBody">
           <% tasks.forEach(task => { %>
-            <tr class="task-row" data-id="<%= task._id %>" 
-                data-status="<%= task.status %>" 
+            <tr class="task-row" data-id="<%= task._id %>"
+                data-status="<%= task.status %>"
+                data-type="<%= task.type || 'story' %>"
                 data-author="<%= task.createdBy || '' %>"
                 data-assignee="<%= task.assignee || '' %>"
                 data-release="<%= task.release || '' %>"
                 data-created="<%= task.createdAt %>"
                 data-updated="<%= task.updatedAt %>">
               <td class="ticket-number"><%= task.ticketNumber || '-' %></td>
+              <td><% if (task.type && task.type !== 'story') { %><span class="type-badge type-<%= task.type %>"><%= task.type %></span><% } else { %>story<% } %></td>
               <td><span class="priority-badge priority-<%= task.priority %>"><%= task.priority %></span></td>
               <td>
                 <div class="task-name"><%= task.name %></div>
@@ -158,6 +171,7 @@
     document.addEventListener('DOMContentLoaded', () => {
       const searchInput = document.getElementById('searchInput');
       const statusFilter = document.getElementById('statusFilter');
+      const typeFilter = document.getElementById('typeFilter');
       const assigneeFilter = document.getElementById('assigneeFilter');
       const releaseFilter = document.getElementById('releaseFilter');
       const dateFrom = document.getElementById('dateFrom');
@@ -172,6 +186,7 @@
       function applyFilters() {
         const search = searchInput.value.toLowerCase();
         const status = statusFilter.value;
+        const type = typeFilter.value;
         const assignee = assigneeFilter.value;
         const release = releaseFilter.value.toLowerCase();
         const fromDate = dateFrom.value ? new Date(dateFrom.value) : null;
@@ -183,6 +198,7 @@
           const name = row.querySelector('.task-name').textContent.toLowerCase();
           const desc = row.querySelector('.task-desc').textContent.toLowerCase();
           const rowStatus = row.dataset.status;
+          const rowType = row.dataset.type || 'story';
           const rowAssignee = row.dataset.assignee;
           const rowRelease = (row.dataset.release || '').toLowerCase();
           const rowCreated = new Date(row.dataset.created);
@@ -196,6 +212,11 @@
           
           // Status filter
           if (status && rowStatus !== status) {
+            show = false;
+          }
+
+          // Type filter
+          if (type && rowType !== type) {
             show = false;
           }
           
@@ -229,6 +250,7 @@
       function clearFilters() {
         searchInput.value = '';
         statusFilter.value = '';
+        typeFilter.value = '';
         assigneeFilter.value = '';
         releaseFilter.value = '';
         dateFrom.value = '';
@@ -269,7 +291,10 @@
           rowsArray.sort((a, b) => {
             let aVal, bVal;
             
-            if (sortKey === 'priority') {
+            if (sortKey === 'type') {
+              aVal = a.dataset.type || 'story';
+              bVal = b.dataset.type || 'story';
+            } else if (sortKey === 'priority') {
               aVal = parseInt(a.querySelector('.priority-badge').textContent);
               bVal = parseInt(b.querySelector('.priority-badge').textContent);
             } else if (sortKey === 'name') {

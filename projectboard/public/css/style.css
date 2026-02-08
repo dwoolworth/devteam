@@ -186,6 +186,39 @@ nav a.active {
   white-space: nowrap;
 }
 
+/* Type badges */
+.type-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  white-space: nowrap;
+}
+
+.type-badge.type-initiative {
+  background: rgba(124, 58, 237, 0.2);
+  color: #a78bfa;
+}
+
+.type-badge.type-epic {
+  background: rgba(37, 99, 235, 0.2);
+  color: #60a5fa;
+}
+
+.type-badge.type-story {
+  background: rgba(107, 114, 128, 0.2);
+  color: #9ca3af;
+}
+
+.task-card .type-badge {
+  display: inline-block;
+  margin-left: 6px;
+  margin-bottom: 0.25rem;
+}
+
 .task-card .ticket-number {
   display: inline-block;
   margin-bottom: 0.25rem;
@@ -309,8 +342,7 @@ nav a.active {
 .priority-badge.priority-4 { background: #f97316; }
 .priority-badge.priority-5 { background: #ef4444; }
 
-.status-select,
-.priority-select {
+.status-select {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -319,9 +351,16 @@ nav a.active {
   font-size: 0.85rem;
 }
 
-.priority-select {
-  width: 50px;
+.col-rank {
+  width: 40px;
   text-align: center;
+}
+
+.rank-display {
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
 }
 
 .task-name {

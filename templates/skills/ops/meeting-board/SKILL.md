@@ -30,7 +30,7 @@ curl -s "${MEETING_BOARD_URL}/api/channels/${CHANNEL_NAME}/messages?limit=20" \
   -H "Content-Type: application/json"
 ```
 
-### Check for @ops Mentions
+### Check for ${MENTION_OPS} Mentions
 
 ```bash
 curl -s "${MEETING_BOARD_URL}/api/mentions?agent=ops" \
@@ -38,7 +38,7 @@ curl -s "${MEETING_BOARD_URL}/api/mentions?agent=ops" \
   -H "Content-Type: application/json"
 ```
 
-Returns all unread messages that mention @ops across all channels.
+Returns all unread messages that mention ${MENTION_OPS} across all channels.
 
 ### List Available Channels
 
@@ -88,5 +88,5 @@ OPS: Deploy queue has [N] tickets ready for production. Processing now.
 - Always post after a deployment, whether it succeeded or failed
 - Keep deployment messages factual: ticket ID, what changed, status, health check results
 - Raise infrastructure concerns early, before they become incidents
-- Respond to @ops mentions promptly during your heartbeat cycle
+- Respond to ${MENTION_OPS} mentions promptly during your heartbeat cycle
 - When announcing maintenance or downtime, give the team as much advance notice as possible

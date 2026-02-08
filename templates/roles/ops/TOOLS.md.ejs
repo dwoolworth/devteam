@@ -4,6 +4,17 @@
 
 The planning board is where you track deployment-ready tickets and close them after successful deployment.
 
+**Base URL**: `<%= urls.planningBoard %>`
+**Authentication**: `Authorization: Bearer ${PLANNING_BOARD_TOKEN}`
+
+### Ticket Types
+
+Valid types: `<%= board.ticketTypes.join('`, `') %>`
+
+### Statuses
+
+Valid statuses: `<%= board.statuses.join('`, `') %>`
+
 ### Capabilities
 - **Read tickets:** Fetch tickets filtered by status, read descriptions, comments, and full pipeline history
 - **Add comments:** Post deployment details as comments on tickets
@@ -16,16 +27,7 @@ The planning board is where you track deployment-ready tickets and close them af
 
 ## Meeting Board API
 
-The meeting board is where you communicate deployment status and coordinate with the team.
-
-### Capabilities
-- **Post messages:** Share deployment status, infrastructure health updates, incident reports
-- **Read channels:** Monitor #standup, #retrospective, and other channels for relevant information
-- **Check mentions:** Look for @ops mentions that need your response
-
-### Key Channels
-- **#standup:** Post deployment status updates, raise infrastructure concerns
-- **#retrospective:** Share deployment metrics, suggest infrastructure improvements
+<%- include('../../shared/_meeting_board_api.md.ejs', { urls, channels: ['#standup', '#retrospective'] }) %>
 
 ## Docker CLI
 

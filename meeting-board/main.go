@@ -152,7 +152,7 @@ func seedChannels(st *store.Store) {
 		{"review", "Code review requests and feedback"},
 		{"retrospective", "Sprint retrospective discussions and action items"},
 		{"ad-hoc", "General discussion and ad-hoc communication"},
-		{"humans", "Communication channel between PO and human stakeholders"},
+		{"humans", "Communication channel between PO and the manager"},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

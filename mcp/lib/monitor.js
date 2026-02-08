@@ -4,7 +4,7 @@ import fs from 'fs';
 import http from 'http';
 import { loadTeam } from './team.js';
 
-function httpRequest(url, options = {}) {
+export function httpRequest(url, options = {}) {
   return new Promise((resolve, reject) => {
     const req = http.request(url, options, (res) => {
       let data = '';
@@ -128,32 +128,15 @@ export function restartAgent(projectRoot, agentName) {
 }
 
 export async function postMessage(projectRoot, channel, text) {
-  const meetingBoardUrl = process.env.MEETING_BOARD_URL || 'http://localhost:8080';
+  const meetingBoardUrl = process.env.MEETING_BOARD_URL || 'http://localhost:8081';
 
-  // First get the channel ID
-  const channelsResp = await httpRequest(`${meetingBoardUrl}/api/channels`, {
-    headers: { Authorization: 'Bearer dashboard' },
-  });
-
-  if (channelsResp.status !== 200) {
-    throw new Error('Failed to fetch channels from meeting board');
-  }
-
-  const channels = channelsResp.data;
-  const targetChannel = channels.find((c) => c.name === channel);
-  if (!targetChannel) {
-    throw new Error(`Channel "${channel}" not found. Available: ${channels.map((c) => c.name).join(', ')}`);
-  }
-
-  const channelId = targetChannel.id || targetChannel._id;
-
-  const resp = await httpRequest(`${meetingBoardUrl}/api/channels/${channelId}/messages`, {
+  const resp = await httpRequest(`${meetingBoardUrl}/api/messages`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: 'Bearer dashboard',
     },
-    body: { content: text },
+    body: { channel, body: text },
   });
 
   if (resp.status >= 400) {
@@ -164,27 +147,10 @@ export async function postMessage(projectRoot, channel, text) {
 }
 
 export async function readChannel(projectRoot, channel, limit = 20) {
-  const meetingBoardUrl = process.env.MEETING_BOARD_URL || 'http://localhost:8080';
-
-  // Get channel ID
-  const channelsResp = await httpRequest(`${meetingBoardUrl}/api/channels`, {
-    headers: { Authorization: 'Bearer dashboard' },
-  });
-
-  if (channelsResp.status !== 200) {
-    throw new Error('Failed to fetch channels from meeting board');
-  }
-
-  const channels = channelsResp.data;
-  const targetChannel = channels.find((c) => c.name === channel);
-  if (!targetChannel) {
-    throw new Error(`Channel "${channel}" not found. Available: ${channels.map((c) => c.name).join(', ')}`);
-  }
-
-  const channelId = targetChannel.id || targetChannel._id;
+  const meetingBoardUrl = process.env.MEETING_BOARD_URL || 'http://localhost:8081';
 
   const resp = await httpRequest(
-    `${meetingBoardUrl}/api/channels/${channelId}/messages?limit=${limit}`,
+    `${meetingBoardUrl}/api/messages?channel=${encodeURIComponent(channel)}&limit=${limit}`,
     {
       headers: { Authorization: 'Bearer dashboard' },
     }

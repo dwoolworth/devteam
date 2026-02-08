@@ -8,6 +8,8 @@ description: Read tickets, post test result comments, and change ticket status a
 ## Overview
 QA has gate permissions on the planning board. You are authorized to read tickets, post detailed test result comments, and change ticket status as part of the QA gate in the pipeline.
 
+**Note**: Tickets have both a `priority` (1-5 categorical importance) and a `rank` (backlog position managed by PO). QA does not modify rank.
+
 ## Permissions
 
 | Action          | Allowed | Notes                                    |

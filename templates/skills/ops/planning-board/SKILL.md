@@ -8,6 +8,8 @@ description: Read tickets, post deployment comments, and move tickets to closed 
 ## Overview
 OPS has deployment-gate permissions on the planning board. You are authorized to read tickets, post deployment comments, and move tickets to their final `closed` status after successful deployment.
 
+**Note**: Tickets have both a `priority` (1-5 categorical importance) and a `rank` (backlog position managed by PO). OPS does not modify rank.
+
 ## Permissions
 
 | Action          | Allowed | Notes                                           |

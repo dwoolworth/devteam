@@ -41,6 +41,9 @@ const upload = multer({
   }
 });
 
+// Valid ticket types
+const VALID_TICKET_TYPES = ['initiative', 'epic', 'story'];
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
@@ -143,11 +146,13 @@ function loadAgentGateways() {
       const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
       const gateways = {};
       for (const agent of registry) {
+        // Skip non-agent entries (e.g. manager) that have no gateway
+        if (!agent.gateway) continue;
         const email = agent.email || `${agent.id}@devteam.local`;
         gateways[email] = {
           name: agent.name || agent.id,
           role: agent.role,
-          gatewayUrl: agent.gateway ? `http://${agent.gateway.host || agent.id}:${agent.gateway.port || 18789}` : `http://${agent.id}:18789`,
+          gatewayUrl: `http://${agent.gateway.host || agent.id}:${agent.gateway.port || 18789}`,
           token: agent.token || ''
         };
       }
@@ -158,32 +163,49 @@ function loadAgentGateways() {
     }
   }
 
-  // Fallback: hardcoded defaults
+  // Fallback: generic role-based defaults (used only when registry is missing)
+  console.warn('No agents registry found — using generic role-based defaults');
   return {
-    'piper@devteam.local': {
-      name: 'Piper', role: 'po',
-      gatewayUrl: 'http://po:18789', token: process.env.MB_TOKEN_PO || 'change-me-po-token'
+    'po@devteam.local': {
+      name: 'PO', role: 'po',
+      gatewayUrl: 'http://po:18789', token: process.env.MB_TOKEN_PO || ''
     },
-    'devon@devteam.local': {
-      name: 'Devon', role: 'dev',
-      gatewayUrl: 'http://dev:18789', token: process.env.MB_TOKEN_DEV || 'change-me-dev-token'
+    'dev@devteam.local': {
+      name: 'DEV', role: 'dev',
+      gatewayUrl: 'http://dev:18789', token: process.env.MB_TOKEN_DEV || ''
     },
-    'carmen@devteam.local': {
-      name: 'Carmen', role: 'cq',
-      gatewayUrl: 'http://cq:18789', token: process.env.MB_TOKEN_CQ || 'change-me-cq-token'
+    'cq@devteam.local': {
+      name: 'CQ', role: 'cq',
+      gatewayUrl: 'http://cq:18789', token: process.env.MB_TOKEN_CQ || ''
     },
-    'quinn@devteam.local': {
-      name: 'Quinn', role: 'qa',
-      gatewayUrl: 'http://qa:18789', token: process.env.MB_TOKEN_QA || 'change-me-qa-token'
+    'qa@devteam.local': {
+      name: 'QA', role: 'qa',
+      gatewayUrl: 'http://qa:18789', token: process.env.MB_TOKEN_QA || ''
     },
-    'rafael@devteam.local': {
-      name: 'Rafael', role: 'ops',
-      gatewayUrl: 'http://ops:18789', token: process.env.MB_TOKEN_OPS || 'change-me-ops-token'
+    'ops@devteam.local': {
+      name: 'OPS', role: 'ops',
+      gatewayUrl: 'http://ops:18789', token: process.env.MB_TOKEN_OPS || ''
     }
   };
 }
 
 const AGENT_GATEWAYS = loadAgentGateways();
+
+function loadManagerFromRegistry() {
+  const registryPath = process.env.AGENTS_REGISTRY;
+  if (registryPath && fs.existsSync(registryPath)) {
+    try {
+      const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
+      const mgr = registry.find(e => e.role === 'manager' && !e.gateway);
+      if (mgr) {
+        return { name: mgr.name, email: mgr.email, avatar: mgr.avatar || '\uD83D\uDC64' };
+      }
+    } catch (e) {
+      console.error(`Failed to read manager from registry: ${e.message}`);
+    }
+  }
+  return { name: 'Manager', email: 'manager@devteam.local', avatar: '\uD83D\uDC64' };
+}
 
 // Send notification directly to agent's Clawdbot gateway
 async function sendAgentNotification(agentEmail, message) {
@@ -461,6 +483,8 @@ async function connectDB() {
   await db.collection('tasks').createIndex({ status: 1 });
   await db.collection('tasks').createIndex({ assignee: 1 });
   await db.collection('tasks').createIndex({ priority: 1 });
+  await db.collection('tasks').createIndex({ rank: 1 });
+  await db.collection('tasks').createIndex({ type: 1 });
   await db.collection('auth_users').createIndex({ email: 1 }, { unique: true });
   await db.collection('auth_users').createIndex({ apiToken: 1 }, { sparse: true });
   await db.collection('webhooks').createIndex({ userEmail: 1 }, { unique: true });
@@ -480,8 +504,10 @@ async function connectDB() {
   // Seed team members from agent registry (for task assignment)
   const userCount = await db.collection('users').countDocuments();
   if (userCount === 0) {
+    // Read manager from registry (non-agent entry with role=manager)
+    const managerEntry = loadManagerFromRegistry();
     const userDocs = [
-      { name: 'Human', email: 'human@devteam.local', avatar: '\uD83D\uDC68\u200D\uD83D\uDCBB', isAgent: false, createdAt: new Date() }
+      { name: managerEntry.name, email: managerEntry.email, avatar: managerEntry.avatar, isAgent: false, createdAt: new Date() }
     ];
     for (const [email, config] of Object.entries(AGENT_GATEWAYS)) {
       userDocs.push({
@@ -493,18 +519,20 @@ async function connectDB() {
       });
     }
     await db.collection('users').insertMany(userDocs);
-    console.log(`Created ${userDocs.length} team members`);
+    console.log(`Created ${userDocs.length} team members (manager: ${managerEntry.name})`);
   }
 
   // Seed auth users with login credentials (humans + agents)
   const authUserCount = await db.collection('auth_users').countDocuments();
   if (authUserCount === 0) {
     const defaultPassword = await bcrypt.hash(process.env.PB_DEFAULT_PASSWORD || 'devteam2025', 10);
+    const managerEntry = loadManagerFromRegistry();
     const authDocs = [
-      { email: 'human@devteam.local', name: 'Human', password: defaultPassword, isAgent: false, createdAt: new Date() }
+      { email: managerEntry.email, name: managerEntry.name, password: defaultPassword, isAgent: false, createdAt: new Date() }
     ];
     for (const [email, config] of Object.entries(AGENT_GATEWAYS)) {
-      const apiToken = crypto.randomBytes(32).toString('hex');
+      // Use the registry token so agents can authenticate with their PLANNING_BOARD_TOKEN
+      const apiToken = config.token || crypto.randomBytes(32).toString('hex');
       authDocs.push({
         email: email,
         name: config.name,
@@ -516,10 +544,23 @@ async function connectDB() {
     }
     await db.collection('auth_users').insertMany(authDocs);
     console.log(`Created ${authDocs.length} auth users`);
-    // Log agent tokens for debugging
     authDocs.filter(u => u.isAgent).forEach(u => {
-      console.log(`  ${u.name}: ${u.apiToken}`);
+      console.log(`  ${u.name}: token synced from registry`);
     });
+  }
+
+  // Sync agent API tokens from registry on every startup
+  // This ensures tokens stay in sync after regeneration
+  for (const [email, config] of Object.entries(AGENT_GATEWAYS)) {
+    if (config.token) {
+      const result = await db.collection('auth_users').updateOne(
+        { email, isAgent: true },
+        { $set: { apiToken: config.token, name: config.name, updatedAt: new Date() } }
+      );
+      if (result.modifiedCount > 0) {
+        console.log(`  Synced API token for ${config.name}`);
+      }
+    }
   }
   
   // Seed webhook configurations for agents (direct gateway notifications)
@@ -566,6 +607,54 @@ async function connectDB() {
       );
     }
     console.log(`Backfilled ${tasksWithoutTicketNumber.length} ticket numbers`);
+  }
+
+  // Migration: Backfill type='story' for existing tasks missing the field
+  const tasksWithoutType = await db.collection('tasks').updateMany(
+    { type: { $exists: false } },
+    { $set: { type: 'story' } }
+  );
+  if (tasksWithoutType.modifiedCount > 0) {
+    console.log(`Backfilled type='story' on ${tasksWithoutType.modifiedCount} existing tasks`);
+  }
+
+  // Migration: Backfill rank for existing tasks without one
+  const tasksWithoutRank = await db.collection('tasks').find({ rank: { $exists: false } }).toArray();
+  if (tasksWithoutRank.length > 0) {
+    console.log(`Backfilling rank for ${tasksWithoutRank.length} existing tasks...`);
+    // Active tickets get sequential rank sorted by priority desc → backlogOrder asc → createdAt asc
+    const active = tasksWithoutRank
+      .filter(t => !['completed', 'closed', 'rfp'].includes(t.status))
+      .sort((a, b) => {
+        const priDiff = (b.priority || 3) - (a.priority || 3);
+        if (priDiff !== 0) return priDiff;
+        const orderDiff = (a.backlogOrder || 0) - (b.backlogOrder || 0);
+        if (orderDiff !== 0) return orderDiff;
+        return (a.createdAt || new Date(0)) - (b.createdAt || new Date(0));
+      });
+    const inactive = tasksWithoutRank.filter(t => ['completed', 'closed', 'rfp'].includes(t.status));
+
+    const bulkOps = [];
+    active.forEach((task, index) => {
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: task._id },
+          update: { $set: { rank: index + 1 } }
+        }
+      });
+    });
+    inactive.forEach(task => {
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: task._id },
+          update: { $set: { rank: 0 } }
+        }
+      });
+    });
+    if (bulkOps.length > 0) {
+      await db.collection('tasks').bulkWrite(bulkOps);
+    }
+    console.log(`Backfilled rank on ${tasksWithoutRank.length} tasks (${active.length} active, ${inactive.length} inactive)`);
   }
 }
 
@@ -752,7 +841,7 @@ app.get('/board/:id/backlog', requireAuth, async (req, res) => {
         boardId: board._id.toString(),
         status: { $nin: ['completed', 'rfp', 'closed'] }
       })
-      .sort({ priority: 1, backlogOrder: 1 })
+      .sort({ rank: 1 })
       .toArray();
     const users = await db.collection('users').find().toArray();
     
@@ -845,7 +934,8 @@ app.get('/api/tasks', requireApiAuth, async (req, res) => {
     if (req.query.status) filter.status = req.query.status;
     if (req.query.assignee) filter.assignee = req.query.assignee;
     if (req.query.boardId) filter.boardId = req.query.boardId;
-    
+    if (req.query.type) filter.type = req.query.type;
+
     const tasks = await db.collection('tasks')
       .find(filter)
       .sort({ updatedAt: -1 })
@@ -906,6 +996,38 @@ async function getNextTicketNumber() {
   return `MNS-${counter.seq}`;
 }
 
+// Compute initial rank for a new ticket based on its priority.
+// Higher-priority tickets insert near the top (after others at that priority level).
+async function computeInitialRank(priority) {
+  // Find the last rank of tickets at this priority level or higher
+  const higherOrEqual = await db.collection('tasks')
+    .find({
+      status: { $nin: ['completed', 'closed', 'rfp'] },
+      priority: { $gte: priority },
+      rank: { $gt: 0 }
+    })
+    .sort({ rank: -1 })
+    .limit(1)
+    .toArray();
+
+  let insertAtRank;
+  if (higherOrEqual.length > 0) {
+    // Insert right after the last ticket at this priority or higher
+    insertAtRank = higherOrEqual[0].rank + 1;
+  } else {
+    // No tickets at this priority or higher — insert at position 1
+    insertAtRank = 1;
+  }
+
+  // Shift all existing tickets at or below this rank down by 1
+  await db.collection('tasks').updateMany(
+    { rank: { $gte: insertAtRank, $gt: 0 } },
+    { $inc: { rank: 1 } }
+  );
+
+  return insertAtRank;
+}
+
 // Create task
 app.post('/api/tasks', requireApiAuth, async (req, res) => {
   try {
@@ -913,21 +1035,34 @@ app.post('/api/tasks', requireApiAuth, async (req, res) => {
     if (!req.body.boardId) {
       return res.status(400).json({ error: 'boardId is required' });
     }
-    
+
     // Validate boardId exists
     const board = await db.collection('boards').findOne({ _id: new ObjectId(req.body.boardId) });
     if (!board) {
       return res.status(400).json({ error: 'Invalid boardId - board not found' });
     }
-    
+
+    // Validate and default ticket type
+    const type = req.body.type || 'story';
+    if (!VALID_TICKET_TYPES.includes(type)) {
+      return res.status(400).json({ error: `Invalid type '${type}'. Must be one of: ${VALID_TICKET_TYPES.join(', ')}` });
+    }
+
     // Generate ticket number
     const ticketNumber = await getNextTicketNumber();
-    
+
+    const taskPriority = parseInt(req.body.priority) || 3;
+    const taskStatus = req.body.status || 'backlog';
+    const isActive = !['completed', 'closed', 'rfp'].includes(taskStatus);
+    const rank = isActive ? await computeInitialRank(taskPriority) : 0;
+
     const task = {
       ...req.body,
+      type,
       ticketNumber,
-      status: req.body.status || 'backlog',
-      priority: parseInt(req.body.priority) || 3,
+      status: taskStatus,
+      priority: taskPriority,
+      rank,
       complexity: parseInt(req.body.complexity) || 3,
       assignee: req.body.assignee || null,
       comments: [],
@@ -941,7 +1076,7 @@ app.post('/api/tasks', requireApiAuth, async (req, res) => {
         details: 'Task created'
       }]
     };
-    
+
     const result = await db.collection('tasks').insertOne(task);
     task._id = result.insertedId;
     
@@ -973,10 +1108,16 @@ app.put('/api/tasks/:id', requireApiAuth, async (req, res) => {
       return res.status(404).json({ error: 'Task not found' });
     }
     
+    // Validate type if provided
+    if (req.body.type && !VALID_TICKET_TYPES.includes(req.body.type)) {
+      return res.status(400).json({ error: `Invalid type '${req.body.type}'. Must be one of: ${VALID_TICKET_TYPES.join(', ')}` });
+    }
+
     const historyEntries = [];
     const statusChanged = req.body.status && req.body.status !== existingTask.status;
     const assigneeChanged = req.body.assignee !== undefined && req.body.assignee !== existingTask.assignee;
-    
+    const typeChanged = req.body.type && req.body.type !== existingTask.type;
+
     // Track status change
     if (statusChanged) {
       historyEntries.push({
@@ -996,25 +1137,38 @@ app.put('/api/tasks/:id', requireApiAuth, async (req, res) => {
         details: `Assigned to: ${req.body.assignee || 'Unassigned'}`
       });
     }
-    
+
+    // Track type change
+    if (typeChanged) {
+      historyEntries.push({
+        action: 'type_change',
+        timestamp: new Date(),
+        user: req.apiUser.email,
+        details: `Type: ${existingTask.type || 'none'} → ${req.body.type}`
+      });
+    }
+
     const update = {
       ...req.body,
       updatedAt: new Date(),
       updatedBy: req.apiUser.email
     };
-    
+
+    // rank is only changeable via the reorder endpoint
+    delete update.rank;
+
     if (req.body.priority) update.priority = parseInt(req.body.priority);
     if (req.body.complexity) update.complexity = parseInt(req.body.complexity);
-    
+
     const updateOp = { $set: update };
     if (historyEntries.length > 0) {
       updateOp.$push = { history: { $each: historyEntries } };
     }
-    
+
     await db.collection('tasks').updateOne({ _id: taskId }, updateOp);
-    
+
     const updatedTask = await db.collection('tasks').findOne({ _id: taskId });
-    
+
     // Send notifications
     if (assigneeChanged && req.body.assignee) {
       await notifyTaskEvent('task_assigned', updatedTask, req.apiUser.email);
@@ -1084,14 +1238,13 @@ app.post('/api/tasks/reorder', requireApiAuth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid order data' });
     }
     
-    // Update each task with its new backlog order AND priority (1 = highest, N = lowest)
+    // Update each task with its new rank (backlog position). Priority is NOT changed.
     const bulkOps = order.map((item, index) => ({
       updateOne: {
         filter: { _id: new ObjectId(item.id) },
-        update: { 
-          $set: { 
-            backlogOrder: item.order,
-            priority: index + 1,  // Priority matches position: 1 = top, N = bottom
+        update: {
+          $set: {
+            rank: index + 1,
             updatedAt: new Date()
           }
         }
@@ -1384,19 +1537,32 @@ app.post('/api/tickets', requireApiAuth, async (req, res) => {
       if (!board) return res.status(400).json({ error: 'Invalid boardId - board not found' });
     }
 
+    // Validate and default ticket type
+    const type = req.body.type || 'story';
+    if (!VALID_TICKET_TYPES.includes(type)) {
+      return res.status(400).json({ error: `Invalid type '${type}'. Must be one of: ${VALID_TICKET_TYPES.join(', ')}` });
+    }
+
     const ticketNumber = await getNextTicketNumber();
 
     // Accept both "name" and "title" for the ticket name
     const taskName = req.body.name || req.body.title || req.body.summary || 'Untitled';
 
+    const taskPriority = parseInt(req.body.priority) || 3;
+    const taskStatus = req.body.status || 'backlog';
+    const isActive = !['completed', 'closed', 'rfp'].includes(taskStatus);
+    const rank = isActive ? await computeInitialRank(taskPriority) : 0;
+
     const task = {
       ...req.body,
+      type,
       name: taskName,
       title: taskName,
       boardId,
       ticketNumber,
-      status: req.body.status || 'backlog',
-      priority: parseInt(req.body.priority) || 3,
+      status: taskStatus,
+      priority: taskPriority,
+      rank,
       complexity: parseInt(req.body.complexity) || 3,
       assignee: req.body.assignee || null,
       comments: [],
@@ -1440,9 +1606,15 @@ async function handleTicketUpdate(req, res) {
     const existingTask = await db.collection('tasks').findOne({ _id: taskId });
     if (!existingTask) return res.status(404).json({ error: 'Ticket not found' });
 
+    // Validate type if provided
+    if (req.body.type && !VALID_TICKET_TYPES.includes(req.body.type)) {
+      return res.status(400).json({ error: `Invalid type '${req.body.type}'. Must be one of: ${VALID_TICKET_TYPES.join(', ')}` });
+    }
+
     const historyEntries = [];
     const statusChanged = req.body.status && req.body.status !== existingTask.status;
     const assigneeChanged = req.body.assignee !== undefined && req.body.assignee !== existingTask.assignee;
+    const typeChanged = req.body.type && req.body.type !== existingTask.type;
 
     if (statusChanged) {
       historyEntries.push({
@@ -1456,8 +1628,16 @@ async function handleTicketUpdate(req, res) {
         details: `Assigned to: ${req.body.assignee || 'Unassigned'}`
       });
     }
+    if (typeChanged) {
+      historyEntries.push({
+        action: 'type_change', timestamp: new Date(), user: req.apiUser.email,
+        details: `Type: ${existingTask.type || 'none'} → ${req.body.type}`
+      });
+    }
 
     const update = { ...req.body, updatedAt: new Date(), updatedBy: req.apiUser.email };
+    // rank is only changeable via the reorder endpoint
+    delete update.rank;
     if (req.body.priority) update.priority = parseInt(req.body.priority);
     if (req.body.complexity) update.complexity = parseInt(req.body.complexity);
 
@@ -1695,6 +1875,11 @@ app.get('/api/board/workload', requireApiAuth, async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Get valid ticket types
+app.get('/api/ticket-types', requireApiAuth, (req, res) => {
+  res.json(VALID_TICKET_TYPES);
 });
 
 // Start server

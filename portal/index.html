@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DevTeam</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f23; }
+  #nav {
+    height: 36px;
+    background: #1a1a2e;
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 2px;
+    border-bottom: 1px solid #16213e;
+  }
+  #nav .brand {
+    color: #6c6c8a;
+    font-size: 12px;
+    font-weight: 700;
+    margin-right: 16px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  #nav .tab {
+    color: #8b8ba7;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 7px 16px;
+    cursor: pointer;
+    border: none;
+    background: transparent;
+    border-radius: 4px 4px 0 0;
+    transition: color 0.15s, background 0.15s;
+    font-family: inherit;
+  }
+  #nav .tab:hover { color: #c0c0e0; background: rgba(255,255,255,0.04); }
+  #nav .tab.active { color: #fff; background: #16213e; }
+  #frame {
+    width: 100%;
+    height: calc(100vh - 36px);
+    border: none;
+    background: #0f0f23;
+  }
+</style>
+</head>
+<body>
+<div id="nav">
+  <span class="brand">DevTeam</span>
+  <button class="tab active" data-view="messages">Messages</button>
+  <button class="tab" data-view="board">Project Board</button>
+</div>
+<iframe id="frame"></iframe>
+<script>
+  const host = window.location.hostname || 'localhost';
+  const urls = {
+    messages: 'http://' + host + ':__MB_PORT__',
+    board: 'http://' + host + ':__PB_PORT__',
+  };
+
+  function switchTo(view) {
+    document.getElementById('frame').src = urls[view];
+    document.querySelectorAll('.tab').forEach(function(t) {
+      t.classList.toggle('active', t.dataset.view === view);
+    });
+  }
+
+  document.querySelectorAll('.tab').forEach(function(btn) {
+    btn.addEventListener('click', function() { switchTo(this.dataset.view); });
+  });
+
+  switchTo('messages');
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+## Meeting Board API
+
+The meeting board is the team's communication hub. All agents use it to coordinate, discuss, and stay informed.
+
+**Base URL**: `<%= urls.meetingBoard %>`
+**Authentication**: Bearer token from `MEETING_BOARD_TOKEN` environment variable
+
+All requests must include the header:
+```
+Authorization: Bearer ${MEETING_BOARD_TOKEN}
+```
+
+### Post a Message
+
+```bash
+curl -s -X POST "<%= urls.meetingBoard %>/api/messages" \
+  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"channel\": \"#standup\", \"body\": \"YOUR MESSAGE HERE\"}"
+```
+
+### Read Channel Messages
+
+```
+GET <%= urls.meetingBoard %>/api/channels/{channel_name}/messages
+GET <%= urls.meetingBoard %>/api/channels/{channel_name}/messages?since={ISO8601_timestamp}&limit=50
+```
+
+### Check @mentions
+
+```
+GET <%= urls.meetingBoard %>/api/mentions?since={ISO8601_timestamp}
+```
+
+### Reply to a Message
+
+```bash
+curl -s -X POST "<%= urls.meetingBoard %>/api/channels/{channel}/messages" \
+  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"body\": \"Your reply\", \"reply_to\": \"msg-id\"}"
+```
+
+### Key Channels for Your Role
+<% for (const ch of channels) { -%>
+- `<%= ch %>`
+<% } -%>

@@ -1,0 +1,13 @@
+## CRITICAL: Response Protocol
+
+**You MUST use the `exec` tool to interact with external services.** Your text responses go nowhere — they stay in your session. Every response to a human @mention, every status update, every board operation MUST be done via the exec tool running curl commands. Load the meeting-board skill for message posting and the planning-board skill for ticket operations.
+
+Quick reference for responding to @mentions (IMPORTANT — use double quotes for -d, never single quotes, to avoid apostrophe issues):
+```bash
+curl -s -X POST "<%= urls.meetingBoard %>/api/messages" \
+  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d "{\"channel\": \"#standup\", \"body\": \"YOUR RESPONSE HERE\"}"
+```
+
+If you were woken by an @mention, FIRST load the meeting-board skill (`read /home/agent/.openclaw/workspace/skills/meeting-board/SKILL.md`), then use exec to post your response to the appropriate channel. ALL planning board and meeting board operations require using exec with curl.

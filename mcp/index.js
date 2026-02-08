@@ -10,6 +10,7 @@ import yaml from 'js-yaml';
 import {
   loadTeam, saveTeam, setupProject, setStack, setPlatform,
   setCredentials, getProject, addAgent, updateAgent, removeAgent, getTeam,
+  resetTeam, addHuman, removeHuman,
 } from './lib/team.js';
 import {
   listRoles, listArchetypes, listTraits, getArchetype,
@@ -19,6 +20,9 @@ import { deploy, teardown, rebuildAgent } from './lib/deployer.js';
 import {
   teamStatus, agentLogs, restartAgent, postMessage, readChannel,
 } from './lib/monitor.js';
+import {
+  inspectAgent, readSkill, listTickets, getTicket, boardSummary,
+} from './lib/inspector.js';
 
 // Project root is the devteam directory (parent of mcp/)
 const PROJECT_ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
@@ -34,14 +38,16 @@ const server = new McpServer({
 
 server.tool(
   'setup_project',
-  'Initialize or update the project configuration — name, description, repo URL',
+  'Initialize or update the project configuration — name, description, repo URL, and manager (your name so agents address you personally)',
   {
     name: z.string().optional().describe('Project name'),
     description: z.string().optional().describe('Project description'),
     repo: z.string().optional().describe('Git repository URL'),
+    manager_name: z.string().optional().describe('Your name — agents will address you by this name instead of "Manager"'),
+    manager_email: z.string().optional().describe('Your email for the team (default: manager@devteam.local)'),
   },
-  async ({ name, description, repo }) => {
-    const result = setupProject(PROJECT_ROOT, { name, description, repo });
+  async ({ name, description, repo, manager_name, manager_email }) => {
+    const result = setupProject(PROJECT_ROOT, { name, description, repo, manager_name, manager_email });
     return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
   }
 );
@@ -204,6 +210,59 @@ server.tool(
     try {
       const result = removeAgent(PROJECT_ROOT, name);
       return { content: [{ type: 'text', text: `Removed ${result.name} (${result.role})` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'start_over',
+  'Reset EVERYTHING — remove all agents from team.yml and delete the entire generated/ directory. Use this to start fresh with a completely new team.',
+  {
+    confirm: z.literal('yes').describe('Must pass "yes" to confirm the reset'),
+  },
+  async ({ confirm }) => {
+    try {
+      const result = resetTeam(PROJECT_ROOT);
+      let text = `Team reset complete.\n\nRemoved:\n${result.removed.map((r) => `  - ${r}`).join('\n')}`;
+      text += `\n\nProject config preserved: ${result.project.name || '(unnamed)'}`;
+      text += `\n\nNext steps: use add_agent to build a new team, then generate + deploy.`;
+      return { content: [{ type: 'text', text }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'add_human',
+  'Add a human user (stakeholder, observer) to the team — they get board access and can be @mentioned by agents',
+  {
+    name: z.string().describe('Human\'s name (e.g., "Alice")'),
+    email: z.string().describe('Human\'s email (e.g., "alice@example.com")'),
+    role: z.string().optional().describe('Role: stakeholder, observer (default: stakeholder)'),
+  },
+  async ({ name, email, role }) => {
+    try {
+      const result = addHuman(PROJECT_ROOT, { name, email, role });
+      return { content: [{ type: 'text', text: `Added human: ${result.name} (${result.email}) as ${result.role}` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'remove_human',
+  'Remove a human user from the team by name',
+  {
+    name: z.string().describe('Human\'s name to remove'),
+  },
+  async ({ name }) => {
+    try {
+      const result = removeHuman(PROJECT_ROOT, name);
+      return { content: [{ type: 'text', text: `Removed human: ${result.name} (${result.email})` }] };
     } catch (e) {
       return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
     }
@@ -382,7 +441,7 @@ server.tool(
 
 server.tool(
   'post_message',
-  'Post a message to a meeting board channel (as "human")',
+  'Post a message to a meeting board channel as the manager',
   {
     channel: z.string().describe('Channel name (e.g., "standup", "planning", "humans")'),
     text: z.string().describe('Message content'),
@@ -412,9 +471,157 @@ server.tool(
       }
       const formatted = result.messages.map((m) => {
         const time = new Date(m.created_at).toLocaleString();
-        return `**${m.author}** (${time}):\n${m.content}`;
+        const name = m.author_name || m.author || 'unknown';
+        const role = m.author_role ? ` (${m.author_role})` : '';
+        return `**${name}${role}** (${time}):\n${m.content}`;
       });
       return { content: [{ type: 'text', text: `## #${channel}\n\n${formatted.join('\n\n---\n\n')}` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+// ============================================================================
+// Inspect & Board Tools
+// ============================================================================
+
+server.tool(
+  'inspect_agent',
+  'Read an agent\'s generated persona files (IDENTITY.md, SOUL.md, HEARTBEAT.md, TOOLS.md) and list its skills',
+  {
+    name: z.string().describe('Agent name (e.g., "Piper", "Juniper")'),
+  },
+  async ({ name }) => {
+    try {
+      const result = inspectAgent(PROJECT_ROOT, name);
+      let text = `## ${result.agent} — Persona Files\n\n`;
+      for (const [filename, content] of Object.entries(result.files)) {
+        text += `### ${filename}\n\n${content}\n\n---\n\n`;
+      }
+      if (result.skills.length > 0) {
+        text += `### Skills\n\n${result.skills.map((s) => `- ${s}`).join('\n')}`;
+      } else {
+        text += `### Skills\n\nNo skills configured.`;
+      }
+      return { content: [{ type: 'text', text }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'read_skill',
+  'Read a specific skill\'s SKILL.md for an agent — useful for debugging skill definitions',
+  {
+    name: z.string().describe('Agent name'),
+    skill: z.string().describe('Skill directory name (e.g., "meeting-board", "planning-board")'),
+  },
+  async ({ name, skill }) => {
+    try {
+      const result = readSkill(PROJECT_ROOT, name, skill);
+      return { content: [{ type: 'text', text: `## ${result.agent} / ${result.skill}\n\n${result.content}` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'list_tickets',
+  'Query project board tickets with optional filters — status, assignee, type, priority, search text',
+  {
+    status: z.string().optional().describe('Filter by status: backlog, todo, in-progress, blocked, in-review, in-qa, completed, rfp, closed'),
+    assignee: z.string().optional().describe('Filter by assignee email (e.g., "piper@devteam.local") or "none" for unassigned'),
+    type: z.string().optional().describe('Filter by type: initiative, epic, story'),
+    priority: z.number().optional().describe('Filter by priority: 1 (lowest) to 5 (critical)'),
+    search: z.string().optional().describe('Search ticket names, descriptions, and numbers'),
+    limit: z.number().optional().describe('Max results (default 100)'),
+  },
+  async (filters) => {
+    try {
+      const tickets = await listTickets(PROJECT_ROOT, filters);
+      if (!Array.isArray(tickets) || tickets.length === 0) {
+        return { content: [{ type: 'text', text: 'No tickets found matching filters.' }] };
+      }
+      const lines = tickets.map((t) => {
+        const assignee = t.assignee || 'unassigned';
+        const priority = { 5: 'CRIT', 4: 'HIGH', 3: 'MED', 2: 'LOW', 1: 'MIN' }[t.priority] || '?';
+        const typePrefix = (t.type && t.type !== 'story') ? `[${t.type.toUpperCase()}] ` : '';
+        return `**${t.ticketNumber || '?'}** ${typePrefix}[${priority}] ${t.name || t.title || 'Untitled'} — *${t.status}* (${assignee})`;
+      });
+      return { content: [{ type: 'text', text: `## Tickets (${tickets.length})\n\n${lines.join('\n')}` }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'get_ticket',
+  'Get full ticket detail including comments and history by ticket number (e.g., MNS-22) or ID',
+  {
+    ticket: z.string().describe('Ticket number (e.g., "MNS-22") or ObjectId'),
+  },
+  async ({ ticket }) => {
+    try {
+      const t = await getTicket(PROJECT_ROOT, ticket);
+      let text = `## ${t.ticketNumber || ticket} — ${t.name || t.title || 'Untitled'}\n\n`;
+      text += `**Status:** ${t.status}  **Priority:** ${t.priority}  **Assignee:** ${t.assignee || 'unassigned'}\n`;
+      if (t.type) text += `**Type:** ${t.type}  `;
+      if (t.complexity) text += `**Complexity:** ${t.complexity}`;
+      text += '\n';
+      if (t.description) text += `\n### Description\n\n${t.description}\n`;
+      if (t.comments && t.comments.length > 0) {
+        text += `\n### Comments (${t.comments.length})\n\n`;
+        text += t.comments.map((c) => {
+          const time = new Date(c.timestamp).toLocaleString();
+          return `**${c.authorName || c.author}** (${time}):\n${c.text || c.body}`;
+        }).join('\n\n---\n\n');
+      }
+      if (t.history && t.history.length > 0) {
+        text += `\n\n### History (${t.history.length})\n\n`;
+        text += t.history.map((h) => {
+          const time = new Date(h.timestamp).toLocaleString();
+          return `- ${time} — ${h.details} *(${h.user})*`;
+        }).join('\n');
+      }
+      return { content: [{ type: 'text', text }] };
+    } catch (e) {
+      return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
+    }
+  }
+);
+
+server.tool(
+  'board_summary',
+  'Get project board overview — ticket counts per status column and workload per assignee',
+  {},
+  async () => {
+    try {
+      const { statusCounts, workload } = await boardSummary(PROJECT_ROOT);
+
+      let text = '## Board Summary\n\n### Status Counts\n\n';
+      const statusOrder = ['backlog', 'todo', 'in-progress', 'blocked', 'in-review', 'in-qa', 'completed', 'rfp', 'closed'];
+      for (const status of statusOrder) {
+        if (statusCounts[status]) {
+          text += `- **${status}**: ${statusCounts[status]}\n`;
+        }
+      }
+      // Include any statuses not in the standard list
+      for (const [status, count] of Object.entries(statusCounts)) {
+        if (!statusOrder.includes(status)) {
+          text += `- **${status}**: ${count}\n`;
+        }
+      }
+
+      text += '\n### Workload\n\n';
+      for (const [assignee, count] of Object.entries(workload)) {
+        text += `- **${assignee}**: ${count} tickets\n`;
+      }
+
+      return { content: [{ type: 'text', text }] };
     } catch (e) {
       return { content: [{ type: 'text', text: `Error: ${e.message}` }], isError: true };
     }
@@ -468,6 +675,32 @@ server.resource(
     const fp = path.join(PROJECT_ROOT, 'templates', 'archetypes.yml');
     const text = fs.readFileSync(fp, 'utf8');
     return { contents: [{ uri: uri.href, mimeType: 'text/yaml', text }] };
+  }
+);
+
+server.resource(
+  'devteam://compose',
+  'devteam://compose',
+  async (uri) => {
+    const fp = path.join(PROJECT_ROOT, 'generated', 'docker-compose.generated.yml');
+    if (!fs.existsSync(fp)) {
+      return { contents: [{ uri: uri.href, mimeType: 'text/yaml', text: '# Not generated yet' }] };
+    }
+    const text = fs.readFileSync(fp, 'utf8');
+    return { contents: [{ uri: uri.href, mimeType: 'text/yaml', text }] };
+  }
+);
+
+server.resource(
+  'devteam://router-config',
+  'devteam://router-config',
+  async (uri) => {
+    const fp = path.join(PROJECT_ROOT, 'generated', 'router-agents.json');
+    if (!fs.existsSync(fp)) {
+      return { contents: [{ uri: uri.href, mimeType: 'application/json', text: '[]' }] };
+    }
+    const text = fs.readFileSync(fp, 'utf8');
+    return { contents: [{ uri: uri.href, mimeType: 'application/json', text }] };
   }
 );
 

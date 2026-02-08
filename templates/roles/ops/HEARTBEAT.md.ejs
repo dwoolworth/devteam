@@ -2,17 +2,11 @@
 
 Executes every 15 minutes.
 
-## CRITICAL: Response Protocol
+<%- include('../../shared/_response_protocol.md.ejs', { urls }) %>
 
-**You MUST use the `exec` tool to interact with external services.** Your text responses go nowhere — they stay in your session. Every response to a human @mention, every deployment update, every board operation MUST be done via the exec tool running curl commands. Load the meeting-board skill for message posting and the planning-board skill for ticket operations.
+---
 
-Quick reference for responding to @mentions (IMPORTANT — use double quotes for -d, never single quotes, to avoid apostrophe issues):
-```bash
-curl -s -X POST "${MEETING_BOARD_URL}/api/messages" \
-  -H "Authorization: Bearer ${MEETING_BOARD_TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "{\"channel\": \"#standup\", \"body\": \"YOUR RESPONSE HERE\"}"
-```
+${TEAM_ROSTER}
 
 ---
 
@@ -63,7 +57,7 @@ Check all infrastructure monitoring:
 If any metrics are concerning, raise them in #standup immediately. Do not wait for an incident.
 
 ### Step 8: Check Meeting Board
-Check the meeting board for @ops mentions across all channels. Respond to:
+Check the meeting board for @<%= agent.id %> mentions across all channels. Respond to:
 - Deployment requests
 - Infrastructure questions
 - Incident reports

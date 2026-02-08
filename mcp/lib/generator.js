@@ -20,7 +20,7 @@ function loadRoleConfig(projectRoot, role) {
 
 function renderTemplate(templatePath, data) {
   const template = fs.readFileSync(templatePath, 'utf8');
-  return ejs.render(template, data);
+  return ejs.render(template, data, { filename: templatePath });
 }
 
 // Provider display names
@@ -74,14 +74,62 @@ export function generate(projectRoot) {
   let portOffset = 0;
 
   // Build teammates list for IDENTITY.md template
-  const ROLE_TITLES = { po: 'Product Owner', dev: 'Developer', cq: 'Code Quality', qa: 'QA Tester', ops: 'DevOps' };
-  const teammates = agents.map((a) => ({
-    id: a.name.toLowerCase(),
-    name: a.name,
-    role: a.role,
-    roleName: ROLE_TITLES[a.role] || a.role.toUpperCase(),
-    providerDisplay: PROVIDER_DISPLAY[a.provider.split('/')[0]] || a.provider,
-  }));
+  const ROLE_TITLES = { po: 'Product Owner', dev: 'Developer', cq: 'Code Quality', qa: 'QA Tester', ops: 'DevOps', manager: 'Manager' };
+  const managerConfig = team.project.manager || { name: 'Manager', email: 'manager@devteam.local' };
+  const teammates = [
+    {
+      id: managerConfig.name.toLowerCase(),
+      name: managerConfig.name,
+      role: 'manager',
+      roleName: 'Manager',
+      providerDisplay: 'Human',
+    },
+    ...agents.map((a) => ({
+      id: a.name.toLowerCase(),
+      name: a.name,
+      role: a.role,
+      roleName: ROLE_TITLES[a.role] || a.role.toUpperCase(),
+      providerDisplay: PROVIDER_DISPLAY[a.provider.split('/')[0]] || a.provider,
+    })),
+  ];
+
+  // Build team.byRole — group agents by role with email
+  const teamByRole = {};
+  for (const a of agents) {
+    const r = a.role;
+    if (!teamByRole[r]) teamByRole[r] = [];
+    teamByRole[r].push({
+      name: a.name,
+      id: a.name.toLowerCase(),
+      email: `${a.name.toLowerCase()}@devteam.local`,
+    });
+  }
+
+  // Build @mention helpers — space-separated agent IDs per role
+  const mentionsData = { all: '@everyone' };
+  for (const [r, agentsInRole] of Object.entries(teamByRole)) {
+    mentionsData[r] = agentsInRole.map((a) => `@${a.id}`).join(' ');
+  }
+  // First agent per role (for examples in curl commands)
+  const firstDev = (teamByRole.dev && teamByRole.dev[0]) || { name: 'dev', id: 'dev', email: 'dev@devteam.local' };
+  mentionsData.firstDev = firstDev.name;
+  mentionsData.firstDevName = firstDev.name;
+  mentionsData.firstDevEmail = firstDev.email;
+
+  // Board constants (match what projectboard/src/server.js enforces)
+  const boardConstants = {
+    ticketTypes: ['initiative', 'epic', 'story'],
+    statuses: ['backlog', 'todo', 'in-progress', 'blocked', 'in-review', 'in-qa', 'completed', 'rfp', 'closed'],
+    priorities: '1 (lowest) to 5 (critical)',
+    complexity: [1, 2, 3, 5, 8, 13, 21],
+    ticketPrefix: 'MNS',
+  };
+
+  // URL constants
+  const urlConstants = {
+    meetingBoard: 'http://meeting-board:8080',
+    planningBoard: 'http://project-board:3000',
+  };
 
   for (const agentDef of agents) {
     const agentId = agentDef.name.toLowerCase();
@@ -148,16 +196,58 @@ export function generate(projectRoot) {
     const soul = renderTemplate(soulTemplate, { agent, role: roleConfig, personality });
     fs.writeFileSync(path.join(workspaceDir, 'SOUL.md'), soul);
 
+    // Build team roster for injection into HEARTBEAT.md and TOOLS.md
+    const rosterLines = teammates.map((t) => {
+      const you = t.id === agentId ? ' (you)' : '';
+      return `- **@${t.id}** — ${t.name}${you} (${t.roleName})`;
+    });
+    const teamRoster = `## Team Roster — @mention Reference\n\n`
+      + `IMPORTANT: Always use **@name** (lowercase) to mention teammates. `
+      + `NEVER use generic role handles like @dev, @cq, @qa, @ops, @po.\n\n`
+      + rosterLines.join('\n')
+      + `\n\nUse \`@everyone\` to address the whole team.\n`;
+
+    // Build full template data for EJS rendering
+    const templateData = {
+      agent,
+      role: roleConfig,
+      personality,
+      teammates,
+      team: {
+        byRole: teamByRole,
+        manager: managerConfig,
+      },
+      mentions: mentionsData,
+      board: boardConstants,
+      urls: urlConstants,
+    };
+
     // Resolve env var placeholders with actual values so agents don't depend
     // on shell variable expansion (LLMs sometimes use single quotes which
     // prevent expansion).
     const envReplacements = {
-      '${MEETING_BOARD_URL}': 'http://meeting-board:8080',
-      '$MEETING_BOARD_URL': 'http://meeting-board:8080',
+      '${MEETING_BOARD_URL}': urlConstants.meetingBoard,
+      '$MEETING_BOARD_URL': urlConstants.meetingBoard,
       '${MEETING_BOARD_TOKEN}': `\${MEETING_BOARD_TOKEN}`,   // keep token as env var (it's secret)
-      '${PLANNING_BOARD_URL}': 'http://project-board:3000',
-      '$PLANNING_BOARD_URL': 'http://project-board:3000',
+      '${PLANNING_BOARD_URL}': urlConstants.planningBoard,
+      '$PLANNING_BOARD_URL': urlConstants.planningBoard,
       '${PLANNING_BOARD_TOKEN}': `\${PLANNING_BOARD_TOKEN}`, // keep token as env var
+      '${TEAM_ROSTER}': teamRoster,
+      // Dynamic team references for skill .md files
+      '${MENTION_PO}': mentionsData.po || '@po',
+      '${MENTION_DEV}': mentionsData.dev || '@dev',
+      '${MENTION_CQ}': mentionsData.cq || '@cq',
+      '${MENTION_QA}': mentionsData.qa || '@qa',
+      '${MENTION_OPS}': mentionsData.ops || '@ops',
+      '${MENTION_ALL}': mentionsData.all,
+      '${EXAMPLE_DEV_NAME}': firstDev.name,
+      '${EXAMPLE_DEV_EMAIL}': firstDev.email,
+      '${VALID_TICKET_TYPES}': boardConstants.ticketTypes.join(', '),
+      '${VALID_STATUSES}': boardConstants.statuses.join(', '),
+      '${COMPLEXITY_SCALE}': boardConstants.complexity.join(', '),
+      '${TICKET_PREFIX}': boardConstants.ticketPrefix,
+      '${MANAGER_NAME}': managerConfig.name,
+      '${MANAGER_EMAIL}': managerConfig.email,
     };
 
     function resolveEnvPlaceholders(content) {
@@ -173,16 +263,24 @@ export function generate(projectRoot) {
       fs.writeFileSync(dest, resolveEnvPlaceholders(content));
     }
 
-    // Copy HEARTBEAT.md from templates (with env resolution)
-    const heartbeatSrc = path.join(projectRoot, 'templates', 'roles', role, 'HEARTBEAT.md');
-    if (fs.existsSync(heartbeatSrc)) {
-      copyFileWithEnvResolve(heartbeatSrc, path.join(workspaceDir, 'HEARTBEAT.md'));
+    // Render HEARTBEAT.md — check for .md.ejs first, fall back to .md
+    const heartbeatEjs = path.join(projectRoot, 'templates', 'roles', role, 'HEARTBEAT.md.ejs');
+    const heartbeatMd = path.join(projectRoot, 'templates', 'roles', role, 'HEARTBEAT.md');
+    if (fs.existsSync(heartbeatEjs)) {
+      const rendered = renderTemplate(heartbeatEjs, templateData);
+      fs.writeFileSync(path.join(workspaceDir, 'HEARTBEAT.md'), resolveEnvPlaceholders(rendered));
+    } else if (fs.existsSync(heartbeatMd)) {
+      copyFileWithEnvResolve(heartbeatMd, path.join(workspaceDir, 'HEARTBEAT.md'));
     }
 
-    // Copy TOOLS.md from templates (with env resolution)
-    const toolsSrc = path.join(projectRoot, 'templates', 'roles', role, 'TOOLS.md');
-    if (fs.existsSync(toolsSrc)) {
-      copyFileWithEnvResolve(toolsSrc, path.join(workspaceDir, 'TOOLS.md'));
+    // Render TOOLS.md — check for .md.ejs first, fall back to .md
+    const toolsEjs = path.join(projectRoot, 'templates', 'roles', role, 'TOOLS.md.ejs');
+    const toolsMd = path.join(projectRoot, 'templates', 'roles', role, 'TOOLS.md');
+    if (fs.existsSync(toolsEjs)) {
+      const rendered = renderTemplate(toolsEjs, templateData);
+      fs.writeFileSync(path.join(workspaceDir, 'TOOLS.md'), resolveEnvPlaceholders(rendered));
+    } else if (fs.existsSync(toolsMd)) {
+      copyFileWithEnvResolve(toolsMd, path.join(workspaceDir, 'TOOLS.md'));
     }
 
     // Render openclaw.json
@@ -197,6 +295,30 @@ export function generate(projectRoot) {
     if (fs.existsSync(skillsSrc)) {
       copyDirRecursive(skillsSrc, skillsDir, resolveEnvPlaceholders);
     }
+  }
+
+  // Add manager entry to registry (non-agent, for board auth and identity)
+  const manager = team.project.manager || { name: 'Manager', email: 'manager@devteam.local' };
+  registry.push({
+    id: manager.name.toLowerCase(),
+    name: manager.name,
+    role: 'manager',
+    email: manager.email,
+    avatar: '\uD83D\uDC64',
+    isAgent: false,
+  });
+
+  // Add additional human users (stakeholders, observers) from team.yml
+  const humans = team.project.humans || [];
+  for (const human of humans) {
+    registry.push({
+      id: human.name.toLowerCase(),
+      name: human.name,
+      role: human.role || 'stakeholder',
+      email: human.email,
+      avatar: '\uD83D\uDC64',
+      isAgent: false,
+    });
   }
 
   // Write agents-registry.json
@@ -222,15 +344,17 @@ export function generate(projectRoot) {
     generateDockerCompose(projectRoot, team, registry, tokens);
   }
 
+  const agentEntries = registry.filter((a) => a.role !== 'manager');
   const result = {
-    agents: registry.map((a) => `${a.name} (${a.role})`),
+    agents: agentEntries.map((a) => `${a.name} (${a.role})`),
     files: [
       'agents-registry.json',
       'router-agents.json',
       '.env.generated',
       target === 'kubernetes' ? 'k8s/' : 'docker-compose.generated.yml',
-      ...registry.map((a) => `${a.id}/persona/`),
+      ...agentEntries.map((a) => `${a.id}/persona/`),
     ],
+    manager: `${manager.name} (${manager.email})`,
   };
   if (envResult.missing && envResult.missing.length > 0) {
     result.warnings = [`Missing API keys (set in .env or shell): ${envResult.missing.join(', ')}`];
@@ -335,7 +459,7 @@ function generateDockerCompose(projectRoot, team, registry, tokens) {
     container_name: 'devteam-meeting-board',
     restart: 'unless-stopped',
     networks: ['devteam'],
-    ports: ['${MEETING_BOARD_PORT:-8080}:8080'],
+    ports: ['${MEETING_BOARD_PORT:-8081}:8080'],
     environment: [
       'MONGO_URI=${MONGO_URI:-mongodb://mongo:27017}',
       'DB_NAME=${MONGO_DB:-meetingboard}',
@@ -376,6 +500,24 @@ function generateDockerCompose(projectRoot, team, registry, tokens) {
       timeout: '5s',
       retries: 5,
       start_period: '10s',
+    },
+  };
+
+  // Portal (nav bar linking both boards)
+  services.portal = {
+    build: { context: '../portal', dockerfile: 'Dockerfile' },
+    container_name: 'devteam-portal',
+    restart: 'unless-stopped',
+    networks: ['devteam'],
+    ports: ['${PORTAL_PORT:-8080}:3000'],
+    environment: [
+      'PORT=3000',
+      'MEETING_BOARD_PORT=${MEETING_BOARD_PORT:-8081}',
+      'PROJECT_BOARD_PORT=${PROJECT_BOARD_PORT:-8088}',
+    ],
+    depends_on: {
+      'meeting-board': { condition: 'service_healthy' },
+      'project-board': { condition: 'service_healthy' },
     },
   };
 
@@ -486,6 +628,7 @@ function generateDockerCompose(projectRoot, team, registry, tokens) {
   }
 
   const compose = {
+    name: 'devteam',
     networks: { devteam: { driver: 'bridge' } },
     volumes: { 'mongo-data': null, 'project-code': null, 'router-data': null },
     services,

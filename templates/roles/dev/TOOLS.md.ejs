@@ -11,24 +11,32 @@ The planning board tracks all tickets and their lifecycle. DEV has limited
 access -- you can read your own tickets and update their status, but you
 cannot create, delete, or reassign tickets.
 
-**Base URL:** `${PLANNING_BOARD_URL}` (from environment variable)
-**Authentication:** Bearer token via `${PLANNING_BOARD_TOKEN}` environment variable
+**Base URL:** `<%= urls.planningBoard %>`
+**Authentication:** Bearer token via `PLANNING_BOARD_TOKEN` environment variable
 
 All requests must include the header:
 ```
 Authorization: Bearer ${PLANNING_BOARD_TOKEN}
 ```
 
+### Ticket Types
+
+Valid types: `<%= board.ticketTypes.join('`, `') %>`
+
+### Statuses
+
+Valid statuses: `<%= board.statuses.join('`, `') %>`
+
 ### Endpoints Available to DEV
 
 #### List tickets assigned to you
 
 ```
-GET /api/tickets?assignee=dev
+GET /api/tickets?assignee=<%= agent.id %>
 ```
 
 Optional query parameters:
-- `status` -- filter by status (`backlog`, `todo`, `in-progress`, `in-review`, `in-qa`, `completed`, `rfp`, `closed`)
+- `status` -- filter by status
 - `priority` -- filter by priority (integer, lower = higher priority)
 - `limit` -- max number of results (default 20)
 - `offset` -- pagination offset
@@ -43,7 +51,7 @@ Response:
       "description": "...",
       "status": "todo",
       "priority": 1,
-      "assignee": "dev",
+      "assignee": "<%= agent.id %>",
       "acceptance_criteria": ["..."],
       "created_at": "2025-01-15T10:00:00Z",
       "updated_at": "2025-01-15T10:00:00Z"
@@ -115,101 +123,12 @@ someone else's ticket will return a 403 error.
 
 ## 2. Meeting Board API
 
-The meeting board is the team's communication hub. All personas use it to
-coordinate, discuss, and stay informed. DEV has full read and write access
-to all channels.
-
-**Base URL:** `${MEETING_BOARD_URL}` (from environment variable)
-**Authentication:** Bearer token via `${MEETING_BOARD_TOKEN}` environment variable
-
-All requests must include the header:
-```
-Authorization: Bearer ${MEETING_BOARD_TOKEN}
-```
-
-### Endpoints
-
-#### Post a message to a channel
-
-```
-POST /api/channels/{channel_name}/messages
-Content-Type: application/json
-
-{"body": "Starting TICKET-42: implementing user authentication flow."}
-```
-
-Common channels:
-- `planning` -- technical discussions, approach proposals, scope questions
-- `review` -- PR submissions, review updates, fix notifications
-- `standup` -- status updates, availability, blockers
-- `general` -- everything else
-
-#### Read messages from a channel
-
-```
-GET /api/channels/{channel_name}/messages
-```
-
-Optional query parameters:
-- `since` -- ISO 8601 timestamp, return messages after this time
-- `limit` -- max number of results (default 50)
-- `author` -- filter by persona name
-
-Response:
-```json
-{
-  "messages": [
-    {
-      "id": "msg-101",
-      "channel": "planning",
-      "author": "po",
-      "body": "TICKET-42 is high priority, please pick it up first.",
-      "created_at": "2025-01-15T09:00:00Z"
-    }
-  ]
-}
-```
-
-#### Check @dev mentions
-
-```
-GET /api/mentions?persona=dev&since={iso_timestamp}
-```
-
-Returns all messages across all channels that mention @dev since the given
-timestamp. This is your primary way to know when someone needs your attention.
-
-Response:
-```json
-{
-  "mentions": [
-    {
-      "message_id": "msg-205",
-      "channel": "planning",
-      "author": "cq",
-      "body": "@dev can you explain the rationale for using a singleton here?",
-      "created_at": "2025-01-15T11:30:00Z"
-    }
-  ]
-}
-```
-
-#### Reply to a thread
-
-```
-POST /api/channels/{channel_name}/messages
-Content-Type: application/json
-
-{
-  "body": "The singleton ensures we have a single DB connection pool.",
-  "reply_to": "msg-205"
-}
-```
+<%- include('../../shared/_meeting_board_api.md.ejs', { urls, channels: ['#planning', '#review', '#standup', '#general'] }) %>
 
 #### WebSocket for real-time updates
 
 ```
-ws://${MEETING_BOARD_URL}/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,review,standup
+ws://<%= urls.meetingBoard.replace('http://', '') %>/ws?token=${MEETING_BOARD_TOKEN}&channels=planning,review,standup
 ```
 
 Receives real-time messages as JSON. Useful for staying responsive between
@@ -300,7 +219,7 @@ gh pr view {pr_number}
 When you submit a ticket for review, you must have the app running inside your
 container so QA can test against it. Your container is on the `devteam` Docker
 network. Other containers (including QA) can reach your app at
-`http://devteam-dev:<port>`.
+`http://devteam-<%= agent.id %>:<port>`.
 
 ### Starting the App
 
@@ -320,7 +239,7 @@ npm start &
 curl -s http://localhost:3000/
 ```
 
-The app is now accessible to QA at `http://devteam-dev:3000` (or whatever port
+The app is now accessible to QA at `http://devteam-<%= agent.id %>:3000` (or whatever port
 the project uses). Include this URL in your ticket comment under "How to Test."
 
 ### Keeping the App Running

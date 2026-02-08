@@ -33,7 +33,9 @@
       <thead>
         <tr>
           <th class="col-handle"></th>
+          <th class="col-rank">#</th>
           <th>Ticket</th>
+          <th>Type</th>
           <th>Pri</th>
           <th>Name</th>
           <th>Description</th>
@@ -46,16 +48,12 @@
       </thead>
       <tbody id="backlogBody">
         <% tasks.forEach((task, index) => { %>
-          <tr data-id="<%= task._id %>" data-order="<%= task.backlogOrder || index %>" class="status-<%= task.status %> backlog-row" draggable="true">
+          <tr data-id="<%= task._id %>" data-order="<%= task.rank || (index + 1) %>" class="status-<%= task.status %> backlog-row" draggable="true">
             <td class="drag-handle" title="Drag to reorder">⋮⋮</td>
+            <td class="rank-display"><%= task.rank || (index + 1) %></td>
             <td class="ticket-number"><%= task.ticketNumber || '-' %></td>
-            <td>
-              <select class="priority-select" data-task-id="<%= task._id %>">
-                <% for (let p = 1; p <= tasks.length; p++) { %>
-                  <option value="<%= p %>" <%= task.priority == p ? 'selected' : '' %>><%= p %></option>
-                <% } %>
-              </select>
-            </td>
+            <td><% if (task.type && task.type !== 'story') { %><span class="type-badge type-<%= task.type %>"><%= task.type %></span><% } else { %>story<% } %></td>
+            <td><% const priLabels = { 5: '🔴', 4: '🟠', 3: '🟡', 2: '🟢', 1: '⚪' }; %><span class="priority-badge priority-<%= task.priority || 3 %>" title="<%= {5:'Critical',4:'High',3:'Medium',2:'Low',1:'Lowest'}[task.priority||3] %>"><%= priLabels[task.priority||3] || '🟡' %></span></td>
             <td class="task-name"><%= task.name %></td>
             <td class="task-desc"><%= task.description ? task.description.substring(0, 80) + (task.description.length > 80 ? '...' : '') : '-' %></td>
             <td>
@@ -110,6 +108,15 @@
         
         <div class="form-row">
           <div class="form-group">
+            <label for="taskType">Type</label>
+            <select id="taskType" name="type">
+              <option value="story">Story</option>
+              <option value="epic">Epic</option>
+              <option value="initiative">Initiative</option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label for="taskPriority">Priority (1-5)</label>
             <select id="taskPriority" name="priority">
               <option value="1">1 - Lowest</option>
@@ -119,7 +126,7 @@
               <option value="5">5 - Critical</option>
             </select>
           </div>
-          
+
           <div class="form-group">
             <label for="taskComplexity">Story Points</label>
             <select id="taskComplexity" name="complexity">
@@ -207,31 +214,6 @@
       const tbody = document.getElementById('backlogBody');
       let draggedRow = null;
       let dragOverRow = null;
-      
-      // Handle priority dropdown changes - move row to new position
-      tbody.addEventListener('change', async (e) => {
-        if (e.target.classList.contains('priority-select')) {
-          const row = e.target.closest('.backlog-row');
-          const newPriority = parseInt(e.target.value);
-          const rows = Array.from(tbody.querySelectorAll('.backlog-row'));
-          const currentIndex = rows.indexOf(row);
-          const targetIndex = newPriority - 1; // Priority is 1-indexed
-          
-          if (currentIndex !== targetIndex && targetIndex >= 0 && targetIndex < rows.length) {
-            // Remove row and insert at new position
-            row.remove();
-            if (targetIndex >= rows.length - 1) {
-              tbody.appendChild(row);
-            } else {
-              const targetRow = tbody.querySelectorAll('.backlog-row')[targetIndex];
-              tbody.insertBefore(row, targetRow);
-            }
-            
-            // Save new order
-            await saveBacklogOrder();
-          }
-        }
-      });
       
       let dragFromHandle = false;
       
@@ -324,8 +306,8 @@
             throw new Error('Failed to save order');
           }
           
-          // Update priority dropdowns to reflect new positions
-          updatePriorityDropdowns();
+          // Update rank numbers to reflect new positions
+          updateRankDisplay();
           
           // Show brief success indicator
           showOrderSaved();
@@ -335,13 +317,12 @@
         }
       }
       
-      function updatePriorityDropdowns() {
+      function updateRankDisplay() {
         const rows = tbody.querySelectorAll('.backlog-row');
         rows.forEach((row, index) => {
-          const select = row.querySelector('.priority-select');
-          if (select) {
-            // Update selected value to match position (1-indexed)
-            select.value = (index + 1).toString();
+          const rankCell = row.querySelector('.rank-display');
+          if (rankCell) {
+            rankCell.textContent = index + 1;
           }
         });
       }

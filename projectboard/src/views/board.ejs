@@ -42,6 +42,7 @@
             <div class="task-card" data-id="<%= task._id %>" draggable="true">
               <div class="task-priority priority-<%= task.priority %>"></div>
               <% if (task.ticketNumber) { %><span class="ticket-number"><%= task.ticketNumber %></span><% } %>
+              <% if (task.type && task.type !== 'story') { %><span class="type-badge type-<%= task.type %>"><%= task.type %></span><% } %>
               <h3><%= task.name %></h3>
               <p class="task-description"><%= task.description ? task.description.substring(0, 100) + (task.description.length > 100 ? '...' : '') : '' %></p>
               <div class="task-meta">
@@ -85,6 +86,15 @@
           
           <div class="form-row">
             <div class="form-group">
+              <label for="taskType">Type</label>
+              <select id="taskType" name="type">
+                <option value="story">Story</option>
+                <option value="epic">Epic</option>
+                <option value="initiative">Initiative</option>
+              </select>
+            </div>
+
+            <div class="form-group">
               <label for="taskPriority">Priority</label>
               <select id="taskPriority" name="priority">
                 <option value="1">⚪ Lowest</option>
@@ -94,7 +104,7 @@
                 <option value="5">🔴 Critical</option>
               </select>
             </div>
-            
+
             <div class="form-group">
               <label for="taskComplexity">Story Points</label>
               <select id="taskComplexity" name="complexity">
@@ -107,7 +117,9 @@
                 <option value="21">21</option>
               </select>
             </div>
-            
+          </div>
+
+          <div class="form-row">
             <div class="form-group">
               <label for="taskStatus">Status</label>
               <select id="taskStatus" name="status">
@@ -122,7 +134,6 @@
                 <option value="closed">📦 Closed</option>
               </select>
             </div>
-          </div>
           
           <div class="form-row">
             <div class="form-group">

@@ -24,6 +24,7 @@
         --badge-qa: #69db7c;
         --badge-ops: #ff6b6b;
         --badge-human: #868e96;
+        --badge-manager: #868e96;
         --scrollbar-thumb: #373a40;
         --scrollbar-track: #1a1b1e;
     }
@@ -225,7 +226,7 @@
     .message-avatar.cq  { background: var(--badge-cq); }
     .message-avatar.qa  { background: var(--badge-qa); }
     .message-avatar.ops { background: var(--badge-ops); }
-    .message-avatar.human { background: var(--badge-human); }
+    .message-avatar.human, .message-avatar.manager { background: var(--badge-manager); }
 
     .message-body {
         flex: 1;
@@ -249,7 +250,7 @@
     .message-author.cq  { color: var(--badge-cq); }
     .message-author.qa  { color: var(--badge-qa); }
     .message-author.ops { color: var(--badge-ops); }
-    .message-author.human { color: var(--badge-human); }
+    .message-author.human, .message-author.manager { color: var(--badge-manager); }
 
     .message-time {
         font-size: 11px;
@@ -361,7 +362,7 @@
     .author-label.cq  { background: rgba(255,169,77,0.2); color: var(--badge-cq); }
     .author-label.qa  { background: rgba(105,219,124,0.2); color: var(--badge-qa); }
     .author-label.ops { background: rgba(255,107,107,0.2); color: var(--badge-ops); }
-    .author-label.human { background: rgba(134,142,150,0.2); color: var(--badge-human); }
+    .author-label.human, .author-label.manager { background: rgba(134,142,150,0.2); color: var(--badge-manager); }
 
     .agent-list {
         padding: 4px 12px 8px;
@@ -449,7 +450,7 @@
         </div>
         <div class="input-area">
             <div class="input-wrapper">
-                <textarea id="messageInput" placeholder="Type a message as human..." rows="1" disabled></textarea>
+                <textarea id="messageInput" placeholder="Type a message..." rows="1" disabled></textarea>
                 <button class="send-btn" id="sendBtn" disabled>Send</button>
             </div>
         </div>
@@ -586,10 +587,10 @@
         div.className = 'message';
 
         // Determine role for styling: use author_role if present, else fall back to author ID
-        var role = msg.author_role || msg.author || 'human';
+        var role = msg.author_role || msg.author || 'manager';
         var roleClass = role;
-        // Display name: prefer author_name, fall back to author, then "Human"
-        var displayName = msg.author_name || msg.author || 'Human';
+        // Display name: prefer author_name, fall back to manager name from registry
+        var displayName = msg.author_name || msg.author || getManagerName();
         // Avatar text: first 2 chars of display name
         var avatarText = displayName.substring(0, 2).toUpperCase();
         // Role badge: uppercase role
@@ -734,6 +735,13 @@
         var div = document.createElement('div');
         div.appendChild(document.createTextNode(str));
         return div.innerHTML;
+    }
+
+    function getManagerName() {
+        for (var i = 0; i < agentRegistry.length; i++) {
+            if (agentRegistry[i].role === 'manager') return agentRegistry[i].name;
+        }
+        return 'Manager';
     }
 
     function highlightMentions(html) {

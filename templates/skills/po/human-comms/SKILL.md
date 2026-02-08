@@ -172,9 +172,9 @@ Epic(s):
 - EPIC-XXX: "Epic title"
 
 Stories:
-- STORY-XXX: "Story title" (assigned to @dev, priority: high)
-- STORY-XXX: "Story title" (assigned to @dev, priority: medium)
-- STORY-XXX: "Story title" (assigned to @dev, priority: medium)
+- STORY-XXX: "Story title" (assigned to ${MENTION_DEV}, priority: high)
+- STORY-XXX: "Story title" (assigned to ${MENTION_DEV}, priority: medium)
+- STORY-XXX: "Story title" (assigned to ${MENTION_DEV}, priority: medium)
 
 All stories have acceptance criteria. The team will begin work in priority order. I will update you as items are completed.
 

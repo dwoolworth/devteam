@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { loadTeam } from './team.js';
 
+const COMPOSE_PROJECT = 'devteam';
+
 export function deploy(projectRoot, options = {}) {
   const team = loadTeam(projectRoot);
   const target = options.target || team.project.platform?.target || 'docker-compose';
@@ -19,6 +21,11 @@ export function deploy(projectRoot, options = {}) {
   return deployDockerCompose(projectRoot);
 }
 
+function composeCmd(composeFile, envFile) {
+  const envArg = envFile && fs.existsSync(envFile) ? `--env-file ${envFile}` : '';
+  return `docker compose -p ${COMPOSE_PROJECT} -f ${composeFile} ${envArg}`;
+}
+
 function deployDockerCompose(projectRoot) {
   const composeFile = path.join(projectRoot, 'generated', 'docker-compose.generated.yml');
   const envFile = path.join(projectRoot, 'generated', '.env.generated');
@@ -28,6 +35,19 @@ function deployDockerCompose(projectRoot) {
   }
 
   const results = [];
+  const cmd = composeCmd(composeFile, envFile);
+
+  // Tear down any existing devteam project first to avoid conflicts
+  try {
+    execSync(`${cmd} down --remove-orphans`, {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      timeout: 120000,
+    });
+    results.push('Cleaned up previous devteam deployment.');
+  } catch {
+    // No previous deployment — that's fine
+  }
 
   // Build images
   try {
@@ -62,16 +82,12 @@ function deployDockerCompose(projectRoot) {
 
   // Start with docker compose
   try {
-    const envArg = fs.existsSync(envFile) ? `--env-file ${envFile}` : '';
-    execSync(
-      `docker compose -f ${composeFile} ${envArg} up -d`,
-      {
-        cwd: projectRoot,
-        stdio: 'pipe',
-        timeout: 300000,
-      }
-    );
-    results.push('Docker Compose services started.');
+    execSync(`${cmd} up -d`, {
+      cwd: projectRoot,
+      stdio: 'pipe',
+      timeout: 300000,
+    });
+    results.push('Docker Compose services started (project: devteam).');
   } catch (e) {
     throw new Error(`Docker Compose up failed: ${e.stderr?.toString() || e.message}`);
   }
@@ -129,13 +145,15 @@ export function teardown(projectRoot, options = {}) {
 
   const composeFile = path.join(projectRoot, 'generated', 'docker-compose.generated.yml');
   if (fs.existsSync(composeFile)) {
+    const envFile = path.join(projectRoot, 'generated', '.env.generated');
+    const cmd = composeCmd(composeFile, envFile);
     try {
-      execSync(`docker compose -f ${composeFile} down -v`, {
+      execSync(`${cmd} down -v --remove-orphans`, {
         cwd: projectRoot,
         stdio: 'pipe',
         timeout: 120000,
       });
-    } catch (e) {
+    } catch {
       // Ignore errors on teardown
     }
   }
@@ -160,8 +178,8 @@ export function rebuildAgent(projectRoot, agentName) {
 
   try {
     const envFile = path.join(projectRoot, 'generated', '.env.generated');
-    const envArg = fs.existsSync(envFile) ? `--env-file ${envFile}` : '';
-    execSync(`docker compose -f ${composeFile} ${envArg} up -d --build ${agentId}`, {
+    const cmd = composeCmd(composeFile, envFile);
+    execSync(`${cmd} up -d --build ${agentId}`, {
       cwd: projectRoot,
       stdio: 'pipe',
       timeout: 300000,

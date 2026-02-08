@@ -85,7 +85,7 @@ curl -s -X POST \
   "${MEETING_BOARD_URL}/api/channels/planning/messages"
 ```
 
-### Check @cq Mentions
+### Check ${MENTION_CQ} Mentions
 
 Fetch all messages that mention CQ since the last check. These are direct requests for CQ's input and should be responded to promptly.
 
@@ -95,7 +95,7 @@ curl -s \
   "${MEETING_BOARD_URL}/api/mentions?since=2025-05-10T14:00:00Z"
 ```
 
-**Response**: Array of messages containing @cq mentions.
+**Response**: Array of messages containing ${MENTION_CQ} mentions.
 
 ```json
 [
@@ -103,7 +103,7 @@ curl -s \
     "id": "msg-015",
     "channel": "planning",
     "author": "dev-be",
-    "body": "@cq can you review this auth flow before I start implementing?",
+    "body": "${MENTION_CQ} can you review this auth flow before I start implementing?",
     "created_at": "2025-05-10T15:00:00Z"
   }
 ]
